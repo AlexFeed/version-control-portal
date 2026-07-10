@@ -1,0 +1,71 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// НАСТРОЙКА СУЩНОСТЕЙ
+
+// Enum для ролей пользователей
+enum Role {
+  VIEWER
+  DEVELOPER
+  ADMIN
+}
+
+model User {
+  id       Int       @id @default(autoincrement())
+  login    String    @unique                      
+  password String                                 
+  role     Role      @default(VIEWER)             
+
+  // Связь: один пользователь может создать много версий
+  versions Version[]
+}
+
+model Project {
+  id          Int       @id @default(autoincrement())
+  name        String                                 
+  description String?                                
+
+  // Связь: один проект имеет много версий
+  versions    Version[]
+}
+
+model Version {
+  id          Int      @id @default(autoincrement())
+  version     String                                
+  description String?                               
+  createdAt   DateTime @default(now())              
+
+  // Внешние ключи
+  projectId   Int                                    
+  authorId    Int                                    
+
+  // Определение связей
+  project     Project  @relation(fields: [projectId], references: [id], onDelete: Cascade)
+  author      User     @relation(fields: [authorId], references: [id])
+  
+  // Связь: одна версия содержит много изменений
+  changes     Change[]
+}
+
+model Change {
+  id          Int      @id @default(autoincrement()) 
+  description String                                 
+  
+  // Внешний ключ
+  versionId   Int                                    
+
+  // Определение связи
+  version     Version  @relation(fields: [versionId], references: [id], onDelete: Cascade)
+}
