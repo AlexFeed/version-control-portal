@@ -1,0 +1,18 @@
+services:
+  postgres:
+    image: postgres:15-alpine # Используем alpine-версию, она весит меньше и работает быстрее
+    container_name: vc-portal-db
+    restart: unless-stopped # Контейнер будет запускаться сам при старте Docker
+    env_file:
+      - ../.env 
+    environment:
+      POSTGRES_USER: ${DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-root}
+      POSTGRES_DB: ${DB_NAME:-version_control_db}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data # Данные БД сохраняются на жесткий диск
+
+volumes:
+  postgres_data:
