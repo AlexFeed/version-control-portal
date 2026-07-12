@@ -1,98 +1,207 @@
-<p align="center">
-  <a href="http://nestjs.com/" target="blank"><img src="https://nestjs.com/img/logo-small.svg" width="120" alt="Nest Logo" /></a>
-</p>
+# ⚙️ Backend — Version Control Portal
 
-[circleci-image]: https://img.shields.io/circleci/build/github/nestjs/nest/master?token=abc123def456
-[circleci-url]: https://circleci.com/gh/nestjs/nest
+Серверная часть системы контроля версий и конфигураций. Разработана на **NestJS**, использует **Prisma ORM** и **PostgreSQL** (через Docker). Обеспечивает транзакционное управление данными и ролевой доступ по JWT-токенам.
 
-  <p align="center">A progressive <a href="http://nodejs.org" target="_blank">Node.js</a> framework for building efficient and scalable server-side applications.</p>
-    <p align="center">
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/v/@nestjs/core.svg" alt="NPM Version" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/l/@nestjs/core.svg" alt="Package License" /></a>
-<a href="https://www.npmjs.com/~nestjscore" target="_blank"><img src="https://img.shields.io/npm/dm/@nestjs/common.svg" alt="NPM Downloads" /></a>
-<a href="https://circleci.com/gh/nestjs/nest" target="_blank"><img src="https://img.shields.io/circleci/build/github/nestjs/nest/master" alt="CircleCI" /></a>
-<a href="https://discord.gg/G7Qnnhy" target="_blank"><img src="https://img.shields.io/badge/discord-online-brightgreen.svg" alt="Discord"/></a>
-<a href="https://opencollective.com/nest#backer" target="_blank"><img src="https://opencollective.com/nest/backers/badge.svg" alt="Backers on Open Collective" /></a>
-<a href="https://opencollective.com/nest#sponsor" target="_blank"><img src="https://opencollective.com/nest/sponsors/badge.svg" alt="Sponsors on Open Collective" /></a>
-  <a href="https://paypal.me/kamilmysliwiec" target="_blank"><img src="https://img.shields.io/badge/Donate-PayPal-ff3f59.svg" alt="Donate us"/></a>
-    <a href="https://opencollective.com/nest#sponsor"  target="_blank"><img src="https://img.shields.io/badge/Support%20us-Open%20Collective-41B883.svg" alt="Support us"></a>
-  <a href="https://twitter.com/nestframework" target="_blank"><img src="https://img.shields.io/twitter/follow/nestframework.svg?style=social&label=Follow" alt="Follow us on Twitter"></a>
-</p>
-  <!--[![Backers on Open Collective](https://opencollective.com/nest/backers/badge.svg)](https://opencollective.com/nest#backer)
-  [![Sponsors on Open Collective](https://opencollective.com/nest/sponsors/badge.svg)](https://opencollective.com/nest#sponsor)-->
+---
 
-## Description
+## 🚀 Как развернуть проект
 
-[Nest](https://github.com/nestjs/nest) framework TypeScript starter repository.
+Процесс установки сведён к максимально простому процессу благодаря внедрению DOCKER.
 
-## Project setup
+### Предварительные требования
+1. Необходимо установить Node.js, а также docker desktop
+2. Запуситить docker desktop в фоне и не выходить из него
+3. Создать файл .env в корне папки /backend для конфигруации (на этапе разработки и тестирования можно просто скопировать текст из .env.example и вставить в новый созданный .env)
+4. Откройте терминал в директории `backend` (cd backend) и выполните команды:
+  ```bash
+  npm install # Установка библиотек
+  npm run backend:dev # Ниже написано что делает эта команда 
+  ```
 
-```bash
-$ npm install
-```
+### Что скрывается под капотом этой команды?
+Команда `npm run backend:dev ` последовательно выполняет следующие шаги:
+1. `docker-compose up -d` — поднимает контейнер с чистой PostgreSQL в фоновом режиме.
+2. `npx prisma generate` — генерирует типы Prisma Client для TypeScript.
+3. `npx prisma migrate dev` — создает таблицы и настраивает связи в базе данных.
+4. `npx prisma db seed` — заполняет базу начальными данными (создает тестовые проекты и пользователей).
+   > **Важно:** Сид автоматически создает базового администратора для входа в систему.  
+   > **Логин:** `admin`  
+   > **Пароль:** `admin123`
+5. `nest start --watch` — запускает сам сервер на `http://localhost:3000` в режиме горячей перезагрузки (Hot-Reload).
 
-## Compile and run the project
+---
 
-```bash
-# development
-$ npm run start
+## 🗄 Структура Базы Данных
 
-# watch mode
-$ npm run start:dev
+База данных состоит из 4 основных сущностей. Prisma обеспечивает строгое каскадное удаление (при удалении проекта удаляются его версии, при удалении версии — её изменения).
 
-# production mode
-$ npm run start:prod
-```
+*   **User (Пользователи):** Хранит учетные данные (`login`, захешированный `password`). Имеет поле `role` (Enum: `ADMIN`, `DEVELOPER`, `VIEWER`). Связан с таблицей `Version` (как автор).
+*   **Project (Проекты):** Хранит `name` и `description`. Основной контейнер для релизов.
+*   **Version (Версии):** Хранит номер `version` (строка, например "1.0.0") и описание `description`. Содержит внешние ключи `projectId` и `authorId`.
+*   **Change (Изменения):** Хранит текст изменения `description`. Содержит внешний ключ `versionId`. Полностью управляется через контроллер версий.
 
-## Run tests
+---
 
-```bash
-# unit tests
-$ npm run test
+## 🔌 API Эндпоинты и Форматы Данных
 
-# e2e tests
-$ npm run test:e2e
+Все запросы (кроме `/auth/login`) защищены и требуют передачи заголовка: 
+`Authorization: Bearer <ваш_токен>`
 
-# test coverage
-$ npm run test:cov
-```
+Базовый URL: `http://localhost:3000`
 
-## Deployment
+### 1. Авторизация (Auth)
 
-When you're ready to deploy your NestJS application to production, there are some key steps you can take to ensure it runs as efficiently as possible. Check out the [deployment documentation](https://docs.nestjs.com/deployment) for more information.
+#### Вход в систему
+*   **Метод:** `POST /auth/login`
+*   **Доступ:** Открытый (без токена)
+*   **Входные данные (Body):**
+    ```json
+    {
+      "login": "admin",
+      "password": "admin123"
+    }
+    ```
+*   **Выходные данные (200 OK):** Возвращает JWT токен.
+    ```json
+    {
+      "access_token": "eyJhbGciOiJIUzI1NiIsInR5c..."
+    }
+    ```
 
-If you are looking for a cloud-based platform to deploy your NestJS application, check out [Mau](https://mau.nestjs.com), our official platform for deploying NestJS applications on AWS. Mau makes deployment straightforward and fast, requiring just a few simple steps:
+---
 
-```bash
-$ npm install -g @nestjs/mau
-$ mau deploy
-```
+### 2. Пользователи (Users)
 
-With Mau, you can deploy your application in just a few clicks, allowing you to focus on building features rather than managing infrastructure.
+#### Получение списка пользователей
+*   **Метод:** `GET /users`
+*   **Доступ:** `ADMIN`, `DEVELOPER`, `VIEWER`
+*   **Выходные данные (200 OK):** Массив объектов пользователей (пароли исключены из выборки на уровне сервиса).
+    ```json
+    [
+      { "id": 1, "login": "admin", "role": "ADMIN" },
+      { "id": 2, "login": "dev_user", "role": "DEVELOPER" }
+    ]
+    ```
 
-## Resources
+#### Создание пользователя
+*   **Метод:** `POST /users`
+*   **Доступ:** Только `ADMIN`
+*   **Входные данные (Body):** Поле `role` должно быть одним из: `ADMIN`, `DEVELOPER`, `VIEWER`.
+    ```json
+    {
+      "login": "new_user",
+      "password": "secret_password",
+      "role": "DEVELOPER"
+    }
+    ```
 
-Check out a few resources that may come in handy when working with NestJS:
+#### Удаление пользователя
+*   **Метод:** `DELETE /users/:id`
+*   **Доступ:** Только `ADMIN`
 
-- Visit the [NestJS Documentation](https://docs.nestjs.com) to learn more about the framework.
-- For questions and support, please visit our [Discord channel](https://discord.gg/G7Qnnhy).
-- To dive deeper and get more hands-on experience, check out our official video [courses](https://courses.nestjs.com/).
-- Deploy your application to AWS with the help of [NestJS Mau](https://mau.nestjs.com) in just a few clicks.
-- Visualize your application graph and interact with the NestJS application in real-time using [NestJS Devtools](https://devtools.nestjs.com).
-- Need help with your project (part-time to full-time)? Check out our official [enterprise support](https://enterprise.nestjs.com).
-- To stay in the loop and get updates, follow us on [X](https://x.com/nestframework) and [LinkedIn](https://linkedin.com/company/nestjs).
-- Looking for a job, or have a job to offer? Check out our official [Jobs board](https://jobs.nestjs.com).
+---
 
-## Support
+### 3. Проекты (Projects)
 
-Nest is an MIT-licensed open source project. It can grow thanks to the sponsors and support by the amazing backers. If you'd like to join them, please [read more here](https://docs.nestjs.com/support).
+#### Чтение проектов
+*   **Получить все:** `GET /projects` (Доступ: все роли). Возвращает массив проектов.
+*   **Получить один:** `GET /projects/:id` (Доступ: все роли). Возвращает конкретный проект по ID.
 
-## Stay in touch
+#### Создание проекта
+*   **Метод:** `POST /projects`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Входные данные (Body):**
+    ```json
+    {
+      "name": "E-commerce Platform",
+      "description": "Основной проект компании"
+    }
+    ```
+*   **Выходные данные (201 Created):**
+    ```json
+    {
+      "id": 1,
+      "name": "E-commerce Platform",
+      "description": "Основной проект компании",
+      "createdAt": "2026-05-10T12:00:00.000Z",
+      "updatedAt": "2026-05-10T12:00:00.000Z"
+    }
+    ```
 
-- Author - [Kamil Myśliwiec](https://twitter.com/kammysliwiec)
-- Website - [https://nestjs.com](https://nestjs.com/)
-- Twitter - [@nestframework](https://twitter.com/nestframework)
+#### Обновление проекта
+*   **Метод:** `PATCH /projects/:id`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Входные данные (Body):** Можно передать только одно поле или оба.
+    ```json
+    {
+      "name": "Новое имя платформы"
+    }
+    ```
 
-## License
+#### Удаление проекта
+*   **Метод:** `DELETE /projects/:id`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Поведение:** Каскадно удаляет все `Versions` и `Changes`, привязанные к этому проекту.
 
-Nest is [MIT licensed](https://github.com/nestjs/nest/blob/master/LICENSE).
+---
+
+### 4. Версии и Изменения (Versions & Changes)
+
+*Особенность архитектуры: Изменения (`changes`) управляются контроллером Версий. При создании и обновлении бэкенд ожидает плоский массив строк, что идеально совместимо с компонентом `Form.List` из Ant Design.*
+
+#### Чтение версий
+*   **Получить все:** `GET /versions` (Доступ: все роли). Массив изменений (`changes`) подтягивается автоматически.
+*   **Получить одну:** `GET /versions/:id` (Доступ: все роли).
+
+#### Создание версии с изменениями
+*   **Метод:** `POST /versions`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Входные данные (Body):**
+    *   `projectId`: ID существующего проекта.
+    *   `changes`: Массив строк (должен содержать минимум 1 элемент).
+    > ID автора (`authorId`) передавать не нужно — бэкенд безопасно извлечет его из переданного JWT-токена.
+    ```json
+    {
+      "projectId": 1,
+      "version": "1.2.0",
+      "description": "Релиз с новым интерфейсом",
+      "changes": [
+        "Добавлена темная тема",
+        "Исправлен баг авторизации"
+      ]
+    }
+    ```
+*   **Выходные данные (201 Created):**
+    ```json
+    {
+      "id": 1,
+      "projectId": 1,
+      "authorId": 1,
+      "version": "1.2.0",
+      "description": "Релиз с новым интерфейсом",
+      "changes": [
+        { "id": 1, "versionId": 1, "description": "Добавлена темная тема" },
+        { "id": 2, "versionId": 1, "description": "Исправлен баг авторизации" }
+      ]
+    }
+    ```
+
+#### Обновление версии (и каскадное обновление изменений)
+*   **Метод:** `PATCH /versions/:id`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Входные данные (Body):** Если в теле запроса передается массив `changes`, **все старые изменения этой версии удаляются из базы данных, а переданные записываются как новые**. Это избавляет фронтенд от необходимости высчитывать ID добавленных и удаленных пунктов в интерфейсе.
+    ```json
+    {
+      "description": "Обновленное описание релиза (Hotfix)",
+      "changes": [
+        "Изменение 1 (осталось без правок)",
+        "Изменение 2 (отредактировано)",
+        "Изменение 3 (абсолютно новое)"
+      ]
+    }
+    ```
+
+#### Удаление версии
+*   **Метод:** `DELETE /versions/:id`
+*   **Доступ:** `ADMIN`, `DEVELOPER`
+*   **Поведение:** Каскадно удаляет все привязанные строки из таблицы `Change`.
