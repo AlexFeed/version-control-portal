@@ -1,17 +1,15 @@
 import { useState } from 'react';
-import { Card, Form, Input, Select, Button, Typography, theme } from 'antd';
+import { Card, Form, Input, Button, Typography, theme, message } from 'antd';
 import { UserOutlined, LockOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
-import { findLoginUser } from '../api/usersApi';
-import type { Role } from '../types';
+import { authApi } from '../api/authApi';
 
 const { Title } = Typography;
 
 interface LoginFormValues {
-  email?: string;
+  login?: string;
   password?: string;
-  role: Role;
 }
 
 export default function LoginPage() {
@@ -20,11 +18,30 @@ export default function LoginPage() {
   const [submitting, setSubmitting] = useState(false);
   const { token } = theme.useToken();
 
-  const onFinish = (values: LoginFormValues) => {
-    setSubmitting(true);
-    const matchedUser = findLoginUser(values.email, values.role);
-    login(matchedUser.id, matchedUser.name, values.role, values.email || matchedUser.email, matchedUser.avatarUrl);
-    navigate('/projects');
+  const onFinish = async (values: LoginFormValues) => {
+    if (!values.login || !values.password) {
+      message.error('Логин и пароль обязательны');
+      return;
+    }
+
+    try {
+      setSubmitting(true);
+      const res = await authApi.login({ login: values.login, password: values.password });
+      localStorage.setItem('auth_token', res.access_token);
+      
+      const tokenStr = res.access_token.split('.')[1];
+      const payload = JSON.parse(atob(tokenStr));
+      
+      const roleMapped = payload.role === 'ADMIN' ? 'Admin' : payload.role === 'DEVELOPER' ? 'Developer' : 'Viewer';
+      
+      login(payload.sub, values.login, roleMapped, values.login);
+      message.success('Вход выполнен успешно!');
+      navigate('/projects');
+    } catch (e: any) {
+      message.error(e.message || 'Ошибка входа. Проверьте логин и пароль.');
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -36,21 +53,12 @@ export default function LoginPage() {
         <div style={{ textAlign: 'center', marginBottom: 24 }}>
           <Title level={3} style={{ margin: 0 }}>Вход в систему</Title>
         </div>
-        <Form layout="vertical" onFinish={onFinish} initialValues={{ role: 'Admin' }}>
-          <Form.Item label="Email" name="email">
-            <Input prefix={<UserOutlined />} placeholder="Введите email (необязательно)" />
+        <Form layout="vertical" onFinish={onFinish}>
+          <Form.Item label="Логин" name="login" rules={[{ required: true, message: 'Пожалуйста, введите логин' }]}>
+            <Input prefix={<UserOutlined />} placeholder="Введите логин (например, admin)" />
           </Form.Item>
-          <Form.Item label="Пароль" name="password">
-            <Input.Password prefix={<LockOutlined />} placeholder="Введите пароль (необязательно)" />
-          </Form.Item>
-          <Form.Item label="Роль (для демонстрации)" name="role" rules={[{ required: true }]}>
-            <Select
-              options={[
-                { value: 'Viewer', label: 'Viewer' },
-                { value: 'Developer', label: 'Developer' },
-                { value: 'Admin', label: 'Admin' },
-              ]}
-            />
+          <Form.Item label="Пароль" name="password" rules={[{ required: true, message: 'Пожалуйста, введите пароль' }, { min: 6, message: 'Пароль должен содержать минимум 6 символов' }]}>
+            <Input.Password prefix={<LockOutlined />} placeholder="Введите пароль (например, admin123)" />
           </Form.Item>
           <Form.Item>
             <Button type="primary" htmlType="submit" block loading={submitting}>

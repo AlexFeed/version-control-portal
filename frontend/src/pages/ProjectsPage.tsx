@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react';
-import { Table, Input, Button, Modal, Form, Select, Popconfirm, Space, Typography, Card, Row, Col, Statistic, Pagination, Popover, DatePicker, theme, message, Spin, Tag } from 'antd';
+import { Table, Input, Button, Modal, Form, Select, Popconfirm, Space, Typography, Card, Row, Col, Statistic, Pagination, Popover, DatePicker, theme, Spin } from 'antd';
 import {
   PlusOutlined,
   ProjectOutlined,
@@ -7,28 +7,18 @@ import {
   SyncOutlined,
   TeamOutlined,
   FilterOutlined,
-  PushpinOutlined,
-  PushpinFilled,
-  StarOutlined,
-  StarFilled,
-  HeartOutlined,
-  HeartFilled,
   EditOutlined,
   DeleteOutlined,
-  UserAddOutlined,
-  MessageOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
-import { getProjects, createProject, updateProject, updateProjectStatus, deleteProject, getProjectMembers, addProjectMember } from '../api/projectsApi';
+import { getProjects, createProject, updateProject, deleteProject } from '../api/projectsApi';
 import { getVersions } from '../api/versionsApi';
-import { getUsers } from '../api/usersApi';
 import { useAuth } from '../auth/AuthContext';
-import { usePinnedTabs } from '../pinned/PinnedTabsContext';
 import { useFillPageSize } from '../hooks/useFillPageSize';
-import { PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS, PROJECT_STATUS_OPTIONS } from '../projectStatus';
-import type { Project, ProjectStatus } from '../types';
+
+import type { Project } from '../types';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
@@ -41,28 +31,15 @@ interface ProjectRow extends Project {
 export default function ProjectsPage() {
   const { token } = theme.useToken();
   const { user } = useAuth();
-  const { isPinned, togglePin } = usePinnedTabs();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingProject, setEditingProject] = useState<ProjectRow | null>(null);
-  const [addMemberProject, setAddMemberProject] = useState<ProjectRow | null>(null);
-  const [addMemberUserId, setAddMemberUserId] = useState<number | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<Set<number>>(new Set());
-  const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
   const canEditProjects = user?.role === 'Admin';
-
-  const toggleInSet = (setter: typeof setPinnedIds, id: number) =>
-    setter(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const { data: rows = [], isLoading } = useQuery({
     queryKey: ['projects-with-versions'],
@@ -71,31 +48,26 @@ export default function ProjectsPage() {
       return Promise.all(
         projects.map(async project => {
           const versions = await getVersions(project.id);
-          const updatedAt = versions[0]?.createdAt ?? '—';
-          return { ...project, versionsCount: versions.length, updatedAt };
+          const updatedAt = versions.length > 0 ? versions[0].createdAt : '—';
+          const createdAt = versions.length > 0 ? versions[versions.length - 1].createdAt : '—';
+          return { ...project, versionsCount: versions.length, updatedAt, createdAt };
         }),
       );
     },
   });
 
-  const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !isLoading);
-
-  const { data: allUsers = [] } = useQuery({ queryKey: ['users'], queryFn: getUsers });
-
-  const { data: usersInProgressCount = 0 } = useQuery({
-    queryKey: ['users-with-active-project', rows.map(r => r.id)],
+  const { data: activeDevelopersCount = 0 } = useQuery({
+    queryKey: ['active-developers', rows.map(r => r.id)],
     queryFn: async (): Promise<number> => {
-      const members = await Promise.all(rows.map(row => getProjectMembers(row.id)));
-      return new Set(members.flat().map(m => m.id)).size;
+      const allVersionsNested = await Promise.all(rows.map(row => getVersions(row.id)));
+      const allVersions = allVersionsNested.flat();
+      const uniqueAuthors = new Set(allVersions.map(v => v.authorId).filter(Boolean));
+      return uniqueAuthors.size;
     },
     enabled: rows.length > 0,
   });
 
-  const { data: addMemberProjectMembers = [] } = useQuery({
-    queryKey: ['project-members', addMemberProject?.id],
-    queryFn: () => getProjectMembers(addMemberProject!.id),
-    enabled: addMemberProject !== null,
-  });
+  const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !isLoading);
 
   const createMutation = useMutation({
     mutationFn: createProject,
@@ -114,31 +86,15 @@ export default function ProjectsPage() {
     },
   });
 
-  const updateStatusMutation = useMutation({
-    mutationFn: ({ id, status }: { id: number; status: ProjectStatus }) => updateProjectStatus(id, status),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects-with-versions'] }),
-  });
-
   const deleteMutation = useMutation({
     mutationFn: deleteProject,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['projects-with-versions'] }),
-  });
-
-  const addMemberMutation = useMutation({
-    mutationFn: ({ projectId, userId }: { projectId: number; userId: number }) => addProjectMember(projectId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-members', addMemberProject?.id] });
-      setAddMemberProject(null);
-      setAddMemberUserId(null);
-    },
   });
 
   const openEdit = (project: ProjectRow) => {
     setEditingProject(project);
     editForm.setFieldsValue({ name: project.name, description: project.description });
   };
-
-  const availableUsersForAddMember = allUsers.filter(u => !addMemberProjectMembers.some(m => m.id === u.id));
 
   const filteredRows = rows.filter(row => {
     const matchesSearch = row.name.toLowerCase().includes(search.toLowerCase());
@@ -147,14 +103,15 @@ export default function ProjectsPage() {
       (row.updatedAt !== '—' && !dayjs(row.updatedAt).isBefore(dateRange[0], 'day') && !dayjs(row.updatedAt).isAfter(dateRange[1], 'day'));
     return matchesSearch && matchesDate;
   });
+  
   const today = dayjs();
-  const createdTodayCount = rows.filter(row => dayjs(row.createdAt).isSame(today, 'day')).length;
+  const createdTodayCount = rows.filter(row => row.createdAt !== '—' && dayjs(row.createdAt).isSame(today, 'day')).length;
   const updatedTodayCount = rows.filter(row => row.updatedAt !== '—' && dayjs(row.updatedAt).isSame(today, 'day')).length;
-  const sortedRows = [...filteredRows].sort((a, b) => Number(pinnedIds.has(b.id)) - Number(pinnedIds.has(a.id)));
-  const pagedRows = sortedRows.slice((page - 1) * pageSize, page * pageSize);
+  
+  const pagedRows = filteredRows.slice((page - 1) * pageSize, page * pageSize);
   const rowNumbers = new Map(rows.map((row, index) => [row.id, index + 1]));
 
-  useEffect(() => setPage(1), [search, dateRange, pageSize, pinnedIds]);
+  useEffect(() => setPage(1), [search, dateRange, pageSize]);
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', flex: 1, minHeight: 0 }}>
@@ -181,7 +138,7 @@ export default function ProjectsPage() {
         </Col>
         <Col xs={24} sm={12} md={6}>
           <Card>
-            <Statistic title="Пользователей в работе" value={usersInProgressCount} prefix={<TeamOutlined style={{ color: '#2f54eb' }} />} />
+            <Statistic title="Активных разработчиков" value={activeDevelopersCount} prefix={<TeamOutlined style={{ color: '#2f54eb' }} />} />
           </Card>
         </Col>
       </Row>
@@ -255,37 +212,16 @@ export default function ProjectsPage() {
                 width: 50,
                 render: (_: unknown, row: ProjectRow) => rowNumbers.get(row.id),
               },
-              { title: 'СОЗДАН', dataIndex: 'createdAt' },
+              {
+                title: 'Создан',
+                dataIndex: 'createdAt',
+                render: (text: string) => text && text !== '—' ? dayjs(text).format('DD.MM.YYYY HH:mm') : '—',
+              },
               { title: 'Название', dataIndex: 'name', render: (name: string, row: ProjectRow) => <Link to={`/projects/${row.id}`}>{name}</Link> },
               { title: 'Описание', dataIndex: 'description' },
-              {
-                title: 'Статус',
-                dataIndex: 'status',
-                render: (status: ProjectStatus, row: ProjectRow) =>
-                  canEditProjects ? (
-                    <Select<ProjectStatus>
-                      value={status}
-                      variant="borderless"
-                      style={{ width: 150 }}
-                      popupMatchSelectWidth={false}
-                      onChange={value => updateStatusMutation.mutate({ id: row.id, status: value })}
-                      options={PROJECT_STATUS_OPTIONS.map(opt => ({
-                        value: opt.value,
-                        label: (
-                          <Tag color={PROJECT_STATUS_COLORS[opt.value]} style={{ width: '100%', textAlign: 'center' }}>
-                            {opt.label}
-                          </Tag>
-                        ),
-                      }))}
-                    />
-                  ) : (
-                    <Tag color={PROJECT_STATUS_COLORS[status]} style={{ width: 118, textAlign: 'center' }}>
-                      {PROJECT_STATUS_LABELS[status]}
-                    </Tag>
-                  ),
-              },
+
               { title: 'Версий', dataIndex: 'versionsCount' },
-              { title: 'Обновлено', dataIndex: 'updatedAt' },
+              { title: 'Обновлено', dataIndex: 'updatedAt', render: (text: string) => text && text !== '—' ? dayjs(text).format('DD.MM.YYYY HH:mm') : '—' },
               canEditProjects
                 ? {
                     title: 'Действия',
@@ -293,14 +229,6 @@ export default function ProjectsPage() {
                     render: (_: unknown, row: ProjectRow) => (
                       <Space>
                         <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)} />
-                        <Button
-                          size="small"
-                          type={isPinned(`/projects/${row.id}`) ? 'primary' : 'default'}
-                          icon={isPinned(`/projects/${row.id}`) ? <PushpinFilled /> : <PushpinOutlined />}
-                          onClick={() => togglePin({ key: `/projects/${row.id}`, label: row.name, type: 'project' })}
-                        />
-                        <Button size="small" icon={<UserAddOutlined />} onClick={() => setAddMemberProject(row)} />
-                        <Button size="small" icon={<MessageOutlined />} onClick={() => message.info('Функция пока в разработке')} />
                         <Popconfirm title="Удалить проект?" onConfirm={() => deleteMutation.mutate(row.id)} okText="Удалить" cancelText="Отмена">
                           <Button size="small" danger icon={<DeleteOutlined />} />
                         </Popconfirm>
@@ -308,27 +236,6 @@ export default function ProjectsPage() {
                     ),
                   }
                 : { title: '', key: 'actions', render: () => null },
-              {
-                title: 'Важность',
-                key: 'importance',
-                width: 90,
-                render: (_: unknown, row: ProjectRow) => (
-                  <Space size={4}>
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={pinnedIds.has(row.id) ? <StarFilled style={{ color: token.colorPrimary }} /> : <StarOutlined />}
-                      onClick={() => toggleInSet(setPinnedIds, row.id)}
-                    />
-                    <Button
-                      type="text"
-                      size="small"
-                      icon={likedIds.has(row.id) ? <HeartFilled style={{ color: '#eb2f96' }} /> : <HeartOutlined />}
-                      onClick={() => toggleInSet(setLikedIds, row.id)}
-                    />
-                  </Space>
-                ),
-              },
             ]}
           />
         </div>
@@ -377,29 +284,6 @@ export default function ProjectsPage() {
             <Input.TextArea rows={3} />
           </Form.Item>
         </Form>
-      </Modal>
-
-      <Modal
-        title={`Добавить участника в проект «${addMemberProject?.name ?? ''}»`}
-        open={addMemberProject !== null}
-        onCancel={() => {
-          setAddMemberProject(null);
-          setAddMemberUserId(null);
-        }}
-        onOk={() => addMemberProject && addMemberUserId !== null && addMemberMutation.mutate({ projectId: addMemberProject.id, userId: addMemberUserId })}
-        confirmLoading={addMemberMutation.isPending}
-        okText="Добавить"
-        okButtonProps={{ disabled: addMemberUserId === null }}
-        cancelText="Отмена"
-      >
-        <Select
-          placeholder="Выберите пользователя"
-          style={{ width: '100%' }}
-          value={addMemberUserId}
-          options={availableUsersForAddMember.map(u => ({ value: u.id, label: u.name }))}
-          onChange={setAddMemberUserId}
-          notFoundContent="Все пользователи уже добавлены"
-        />
       </Modal>
     </div>
   );

@@ -55,11 +55,12 @@ export default function UserDetailPage() {
   });
 
   const updateUserMutation = useMutation({
-    mutationFn: (values: { name: string; email: string }) => updateUser(userId, values),
+    mutationFn: (values: { login: string; password?: string }) => updateUser(userId, values),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['user', userId] });
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditModalOpen(false);
+      editForm.resetFields(['password']);
     },
   });
 
@@ -116,14 +117,8 @@ export default function UserDetailPage() {
           <Text type="secondary">— Роль: {user.role}</Text>
         </Space>
         <Space wrap>
-          <Button icon={<EditOutlined />} onClick={() => { editForm.setFieldsValue(user); setEditModalOpen(true); }}>
+          <Button icon={<EditOutlined />} onClick={() => { editForm.setFieldsValue({ login: user.name }); setEditModalOpen(true); }}>
             Редактировать пользователя
-          </Button>
-          <Button
-            icon={isPinned(`/users/${userId}`) ? <PushpinFilled /> : <PushpinOutlined />}
-            onClick={() => togglePin({ key: `/users/${userId}`, label: user.name, type: 'user' })}
-          >
-            {isPinned(`/users/${userId}`) ? 'Открепить' : 'Закрепить'}
           </Button>
           <Popconfirm title="Удалить пользователя?" onConfirm={() => deleteUserMutation.mutate()} okText="Удалить" cancelText="Отмена">
             <Button danger icon={<DeleteOutlined />}>Удалить пользователя</Button>
@@ -131,6 +126,9 @@ export default function UserDetailPage() {
         </Space>
       </Space>
 
+      <div style={{ width: '100%', marginBottom: 16 }}>
+        <Title level={4} style={{ margin: 0 }}>Проекты пользователя</Title>
+      </div>
       <div style={{ display: 'flex', gap: 8, width: '100%', marginBottom: 20, flexWrap: 'wrap' }}>
         <Input.Search
           placeholder="Поиск проектов"
@@ -220,7 +218,11 @@ export default function UserDetailPage() {
                 ),
               },
               { title: 'Описание', dataIndex: 'description' },
-              { title: 'Дата добавления', dataIndex: 'addedAt' },
+              { 
+                title: 'Дата участия', 
+                dataIndex: 'addedAt',
+                render: (val: string) => val ? dayjs(val).format('DD.MM.YYYY HH:mm') : ''
+              },
               {
                 title: 'Действия',
                 key: 'actions',
@@ -248,11 +250,11 @@ export default function UserDetailPage() {
         cancelText="Отмена"
       >
         <Form form={editForm} layout="vertical" onFinish={values => updateUserMutation.mutate(values)}>
-          <Form.Item label="Имя" name="name" rules={[{ required: true, message: 'Введите имя' }]}>
+          <Form.Item label="Логин" name="login" rules={[{ required: true, message: 'Введите логин' }]}>
             <Input />
           </Form.Item>
-          <Form.Item label="Email" name="email" rules={[{ required: true, message: 'Введите email' }]}>
-            <Input />
+          <Form.Item label="Новый пароль" name="password" rules={[{ min: 6, message: 'Пароль должен содержать минимум 6 символов' }]}>
+            <Input.Password placeholder="Оставьте пустым, чтобы не менять" />
           </Form.Item>
         </Form>
       </Modal>

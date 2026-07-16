@@ -1,14 +1,25 @@
 import { StrictMode, type ReactNode } from 'react';
 import { createRoot } from 'react-dom/client';
-import { ConfigProvider, theme } from 'antd';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { ConfigProvider, theme, message } from 'antd';
+import { QueryClient, QueryClientProvider, QueryCache, MutationCache } from '@tanstack/react-query';
 import { AuthProvider } from './auth/AuthContext';
 import { PinnedTabsProvider } from './pinned/PinnedTabsContext';
 import { ThemeProvider, useThemeMode } from './theme/ThemeContext';
 import App from './App';
 import './index.css';
 
-const queryClient = new QueryClient();
+const queryClient = new QueryClient({
+  queryCache: new QueryCache({
+    onError: (error: any) => {
+      message.error(error.message || 'Ошибка загрузки данных');
+    },
+  }),
+  mutationCache: new MutationCache({
+    onError: (error: any) => {
+      message.error(error.message || 'Ошибка при сохранении данных');
+    },
+  }),
+});
 
 function ThemedConfigProvider({ children }: { children: ReactNode }) {
   const { darkMode } = useThemeMode();

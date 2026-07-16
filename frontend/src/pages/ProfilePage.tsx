@@ -1,10 +1,10 @@
-import { Typography, Card, Descriptions, Tag, Divider, Switch, Button, Avatar, Space, Upload, message } from 'antd';
+import { Typography, Card, Divider, Switch, Button, Avatar, Space, Tag, Upload, message } from 'antd';
 import { UserOutlined, LogoutOutlined, CameraOutlined } from '@ant-design/icons';
 import { useNavigate } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useAuth } from '../auth/AuthContext';
-import { useThemeMode } from '../theme/ThemeContext';
 import { updateUserAvatar } from '../api/usersApi';
+import { useThemeMode } from '../theme/ThemeContext';
 import type { Role } from '../types';
 
 const { Title, Text } = Typography;
@@ -18,12 +18,16 @@ export default function ProfilePage() {
   const queryClient = useQueryClient();
 
   const avatarMutation = useMutation({
-    mutationFn: (avatarUrl: string) => updateUserAvatar(user!.id, avatarUrl),
+    mutationFn: (file: File) => updateUserAvatar(user!.id, file),
     onSuccess: updatedUser => {
       updateAvatar(updatedUser.avatarUrl ?? '');
       queryClient.invalidateQueries({ queryKey: ['users'] });
       queryClient.invalidateQueries({ queryKey: ['user', user!.id] });
+      message.success('Фото профиля обновлено');
     },
+    onError: () => {
+      message.error('Ошибка загрузки фото');
+    }
   });
 
   if (!user) return null;
@@ -38,9 +42,7 @@ export default function ProfilePage() {
       message.error('Выберите файл изображения');
       return false;
     }
-    const reader = new FileReader();
-    reader.onload = () => avatarMutation.mutate(reader.result as string);
-    reader.readAsDataURL(file);
+    avatarMutation.mutate(file);
     return false;
   };
 
@@ -66,10 +68,6 @@ export default function ProfilePage() {
             </div>
           </div>
         </div>
-
-        <Descriptions column={1} colon={false}>
-          <Descriptions.Item label="Email">{user.email || '—'}</Descriptions.Item>
-        </Descriptions>
 
         <Divider />
 
