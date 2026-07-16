@@ -30,7 +30,7 @@ export class AuthService {
       },
     });
 
-    return this.generateToken(user.id, user.role);
+    return this.generateToken(user.id, user.role, user.login);
   }
 
   async login(dto: AuthDto) {
@@ -47,11 +47,11 @@ export class AuthService {
       throw new UnauthorizedException('Неверный логин или пароль');
     }
 
-    return this.generateToken(user.id, user.role);
+    return this.generateToken(user.id, user.role, user.login);
   }
 
-  private generateToken(userId: number, role: string) {
-    const payload = { sub: userId, role };
+  private generateToken(userId: number, role: string, login: string) {
+    const payload = { sub: userId, role, login };
     return {
       access_token: this.jwt.sign(payload),
     };

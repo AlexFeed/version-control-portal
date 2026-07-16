@@ -1,5 +1,5 @@
 import { useEffect, useState, type ReactNode } from 'react';
-import { Table, Input, Button, Modal, Form, Select, Space, Typography, Popconfirm, Tag, Avatar, Card, Row, Col, Statistic, Pagination, Popover, Checkbox, theme, message, Spin } from 'antd';
+import { Table, Input, Button, Modal, Form, Select, Space, Typography, Popconfirm, Tag, Avatar, Card, Row, Col, Statistic, Pagination, Popover, Checkbox, theme, Spin } from 'antd';
 import {
   PlusOutlined,
   DeleteOutlined,
@@ -10,21 +10,12 @@ import {
   CodeOutlined,
   EyeOutlined,
   FilterOutlined,
-  PushpinOutlined,
-  PushpinFilled,
-  StarOutlined,
-  StarFilled,
-  HeartOutlined,
-  HeartFilled,
-  FolderAddOutlined,
-  MessageOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link } from 'react-router-dom';
-import { getUsers, createUser, updateUser, updateUserRole, deleteUser, getUserProjects, getActiveProjectCounts } from '../api/usersApi';
-import { getProjects, addProjectMember } from '../api/projectsApi';
-import { usePinnedTabs } from '../pinned/PinnedTabsContext';
-import { useFillPageSize } from '../hooks/useFillPageSize';
+import dayjs from 'dayjs';
+import { getUsers, createUser, updateUser, updateUserRole, deleteUser } from '../api/usersApi';
+import { useAuth } from '../auth/AuthContext';
 import type { Role, User } from '../types';
 
 const { Title, Text } = Typography;
@@ -39,29 +30,18 @@ const ROLE_STATS: { role: Role; icon: ReactNode }[] = [
 
 export default function UsersPage() {
   const { token } = theme.useToken();
-  const { isPinned, togglePin } = usePinnedTabs();
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [roleFilter, setRoleFilter] = useState<Role[]>([]);
   const [page, setPage] = useState(1);
   const [modalOpen, setModalOpen] = useState(false);
   const [editingUser, setEditingUser] = useState<User | null>(null);
-  const [addProjectUser, setAddProjectUser] = useState<User | null>(null);
-  const [addProjectId, setAddProjectId] = useState<number | null>(null);
-  const [pinnedIds, setPinnedIds] = useState<Set<number>>(new Set());
-  const [likedIds, setLikedIds] = useState<Set<number>>(new Set());
   const [form] = Form.useForm();
   const [editForm] = Form.useForm();
-  const toggleInSet = (setter: typeof setPinnedIds, id: number) =>
-    setter(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const { user: currentUser } = useAuth();
 
   const { data: users = [], isLoading } = useQuery({ queryKey: ['users'], queryFn: getUsers });
-  const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !isLoading);
+  const pageSize = 5;
 
   const createMutation = useMutation({
     mutationFn: createUser,
@@ -73,10 +53,11 @@ export default function UsersPage() {
   });
 
   const updateMutation = useMutation({
-    mutationFn: ({ id, data }: { id: number; data: { name: string; email: string } }) => updateUser(id, data),
+    mutationFn: ({ id, data }: { id: number; data: { login: string; password?: string } }) => updateUser(id, data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['users'] });
       setEditingUser(null);
+      editForm.resetFields(['password']);
     },
   });
 
@@ -90,41 +71,20 @@ export default function UsersPage() {
     onSuccess: () => queryClient.invalidateQueries({ queryKey: ['users'] }),
   });
 
-  const { data: allProjects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
-  const { data: activeProjectCounts = {} } = useQuery({ queryKey: ['active-project-counts'], queryFn: getActiveProjectCounts });
-
-  const { data: addProjectUserProjects = [] } = useQuery({
-    queryKey: ['user-projects', addProjectUser?.id],
-    queryFn: () => getUserProjects(addProjectUser!.id),
-    enabled: addProjectUser !== null,
-  });
-
-  const addMemberMutation = useMutation({
-    mutationFn: ({ projectId, userId }: { projectId: number; userId: number }) => addProjectMember(projectId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-projects', addProjectUser?.id] });
-      queryClient.invalidateQueries({ queryKey: ['active-project-counts'] });
-      setAddProjectUser(null);
-      setAddProjectId(null);
-    },
-  });
-
-  const availableProjectsForAdd = allProjects.filter(p => !addProjectUserProjects.some(up => up.id === p.id));
-
   const filteredUsers = users.filter(u => {
-    const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase()) || u.email.toLowerCase().includes(search.toLowerCase());
+    const matchesSearch = u.name.toLowerCase().includes(search.toLowerCase());
     const matchesRole = roleFilter.length === 0 || roleFilter.includes(u.role);
     return matchesSearch && matchesRole;
   });
-  const sortedUsers = [...filteredUsers].sort((a, b) => Number(pinnedIds.has(b.id)) - Number(pinnedIds.has(a.id)));
-  const pagedUsers = sortedUsers.slice((page - 1) * pageSize, page * pageSize);
+  
+  const pagedUsers = filteredUsers.slice((page - 1) * pageSize, page * pageSize);
   const userNumbers = new Map(users.map((u, index) => [u.id, index + 1]));
 
-  useEffect(() => setPage(1), [search, roleFilter, pageSize, pinnedIds]);
+  useEffect(() => setPage(1), [search, roleFilter, pageSize]);
 
   const openEdit = (user: User) => {
     setEditingUser(user);
-    editForm.setFieldsValue({ name: user.name, email: user.email });
+    editForm.setFieldsValue({ login: user.name });
   };
 
   return (
@@ -183,8 +143,8 @@ export default function UsersPage() {
         style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
         styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', flex: 1 } }}
       >
-        <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-        {(isLoading || !isMeasured) && (
+        <div style={{ flex: 1, minHeight: 0, overflow: 'auto', position: 'relative' }}>
+        {isLoading && (
           <div
             style={{
               position: 'absolute',
@@ -205,7 +165,6 @@ export default function UsersPage() {
           dataSource={pagedUsers}
           pagination={false}
           scroll={{ x: 'max-content' }}
-          onRow={() => (rowHeight ? { style: { height: rowHeight } } : {})}
           columns={[
             {
               title: 'N',
@@ -213,9 +172,13 @@ export default function UsersPage() {
               width: 50,
               render: (_: unknown, row: User) => userNumbers.get(row.id),
             },
-            { title: 'СОЗДАН', dataIndex: 'createdAt' },
             {
-              title: 'Пользователь',
+              title: 'СОЗДАН',
+              dataIndex: 'createdAt',
+              render: (text: string) => text ? dayjs(text).format('DD.MM.YYYY HH:mm') : '—'
+            },
+            {
+              title: 'Логин',
               dataIndex: 'name',
               render: (name: string, row: User) => (
                 <Space>
@@ -224,7 +187,6 @@ export default function UsersPage() {
                 </Space>
               ),
             },
-            { title: 'Email', dataIndex: 'email' },
             {
               title: 'Роль',
               dataIndex: 'role',
@@ -233,6 +195,7 @@ export default function UsersPage() {
                   value={role}
                   variant="borderless"
                   style={{ width: 130 }}
+                  disabled={currentUser?.id === row.id || row.role === 'Admin'}
                   onChange={(newRole: Role) => roleMutation.mutate({ id: row.id, role: newRole })}
                   options={(['Admin', 'Developer', 'Viewer'] as Role[]).map(r => ({
                     value: r,
@@ -242,49 +205,18 @@ export default function UsersPage() {
               ),
             },
             {
-              title: 'Проектов в работе',
-              key: 'activeProjects',
-              width: 150,
-              render: (_: unknown, row: User) => activeProjectCounts[row.id] ?? 0,
-            },
-            {
               title: 'Действия',
               key: 'actions',
               render: (_: unknown, row: User) => (
                 <Space>
                   <Button size="small" icon={<EditOutlined />} onClick={() => openEdit(row)} />
-                  <Button
-                    size="small"
-                    type={isPinned(`/users/${row.id}`) ? 'primary' : 'default'}
-                    icon={isPinned(`/users/${row.id}`) ? <PushpinFilled /> : <PushpinOutlined />}
-                    onClick={() => togglePin({ key: `/users/${row.id}`, label: row.name, type: 'user' })}
-                  />
-                  <Button size="small" icon={<FolderAddOutlined />} onClick={() => setAddProjectUser(row)} />
-                  <Button size="small" icon={<MessageOutlined />} onClick={() => message.info('Функция пока в разработке')} />
-                  <Popconfirm title="Удалить пользователя?" onConfirm={() => deleteMutation.mutate(row.id)} okText="Удалить" cancelText="Отмена">
-                    <Button size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
-                </Space>
-              ),
-            },
-            {
-              title: 'Важность',
-              key: 'importance',
-              width: 90,
-              render: (_: unknown, row: User) => (
-                <Space size={4}>
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={pinnedIds.has(row.id) ? <StarFilled style={{ color: token.colorPrimary }} /> : <StarOutlined />}
-                    onClick={() => toggleInSet(setPinnedIds, row.id)}
-                  />
-                  <Button
-                    type="text"
-                    size="small"
-                    icon={likedIds.has(row.id) ? <HeartFilled style={{ color: '#eb2f96' }} /> : <HeartOutlined />}
-                    onClick={() => toggleInSet(setLikedIds, row.id)}
-                  />
+                  {currentUser?.id === row.id ? (
+                    <Button size="small" danger icon={<DeleteOutlined />} disabled title="Нельзя удалить самого себя" />
+                  ) : (
+                    <Popconfirm title="Удалить пользователя?" onConfirm={() => deleteMutation.mutate(row.id)} okText="Удалить" cancelText="Отмена">
+                      <Button size="small" danger icon={<DeleteOutlined />} />
+                    </Popconfirm>
+                  )}
                 </Space>
               ),
             },
@@ -306,11 +238,11 @@ export default function UsersPage() {
         cancelText="Отмена"
       >
         <Form form={form} layout="vertical" onFinish={values => createMutation.mutate(values)} initialValues={{ role: 'Viewer' }}>
-          <Form.Item label="Имя" name="name" rules={[{ required: true, message: 'Введите имя' }]}>
+          <Form.Item label="Логин" name="login" rules={[{ required: true, message: 'Введите логин' }]}>
             <Input />
           </Form.Item>
-          <Form.Item label="Email" name="email" rules={[{ required: true, message: 'Введите email' }]}>
-            <Input />
+          <Form.Item label="Пароль" name="password" rules={[{ required: true, message: 'Введите пароль' }, { min: 6, message: 'Пароль должен содержать минимум 6 символов' }]}>
+            <Input.Password />
           </Form.Item>
           <Form.Item label="Роль" name="role" rules={[{ required: true }]}>
             <Select options={[{ value: 'Viewer' }, { value: 'Developer' }, { value: 'Admin' }]} />
@@ -332,36 +264,13 @@ export default function UsersPage() {
           layout="vertical"
           onFinish={values => editingUser && updateMutation.mutate({ id: editingUser.id, data: values })}
         >
-          <Form.Item label="Имя" name="name" rules={[{ required: true, message: 'Введите имя' }]}>
+          <Form.Item label="Логин" name="login" rules={[{ required: true, message: 'Введите логин' }]}>
             <Input />
           </Form.Item>
-          <Form.Item label="Email" name="email" rules={[{ required: true, message: 'Введите email' }]}>
-            <Input />
+          <Form.Item label="Новый пароль" name="password" rules={[{ min: 6, message: 'Пароль должен содержать минимум 6 символов' }]}>
+            <Input.Password placeholder="Оставьте пустым, чтобы не менять" />
           </Form.Item>
         </Form>
-      </Modal>
-
-      <Modal
-        title={`Добавить проект пользователю «${addProjectUser?.name ?? ''}»`}
-        open={addProjectUser !== null}
-        onCancel={() => {
-          setAddProjectUser(null);
-          setAddProjectId(null);
-        }}
-        onOk={() => addProjectUser && addProjectId !== null && addMemberMutation.mutate({ projectId: addProjectId, userId: addProjectUser.id })}
-        confirmLoading={addMemberMutation.isPending}
-        okText="Добавить"
-        okButtonProps={{ disabled: addProjectId === null }}
-        cancelText="Отмена"
-      >
-        <Select
-          placeholder="Выберите проект"
-          style={{ width: '100%' }}
-          value={addProjectId}
-          options={availableProjectsForAdd.map(p => ({ value: p.id, label: p.name }))}
-          onChange={setAddProjectId}
-          notFoundContent="Пользователь уже добавлен во все проекты"
-        />
       </Modal>
     </div>
   );

@@ -7,7 +7,7 @@ import { PrismaService } from '../prisma/prisma.service';
 export class VersionsService {
   constructor(private readonly prisma: PrismaService) {}
 
- async create(createVersionDto: CreateVersionDto, authorId: number) {
+  async create(createVersionDto: CreateVersionDto, authorId: number) {
     const { projectId, version, description, changes } = createVersionDto;
 
     return this.prisma.version.create({
@@ -20,20 +20,20 @@ export class VersionsService {
           create: changes.map((changeText) => ({ description: changeText })),
         },
       },
-      include: { changes: true },
+      include: { changes: true, author: { select: { id: true, login: true, role: true } } },
     });
   }
 
   async findAll() {
     return this.prisma.version.findMany({
-      include: { changes: true },
+      include: { changes: true, author: { select: { id: true, login: true, role: true } } },
     });
   }
 
   async findOne(id: number) {
     const version = await this.prisma.version.findUnique({
       where: { id },
-      include: { changes: true }, // Обязательно подтягиваем список изменений для карточки
+      include: { changes: true, author: { select: { id: true, login: true, role: true } } }, 
     });
 
     if (!version) {
@@ -43,7 +43,7 @@ export class VersionsService {
   }
 
   async update(id: number, updateVersionDto: UpdateVersionDto) {
-    await this.findOne(id); // Сначала проверяем, существует ли версия
+    await this.findOne(id); 
 
     const { changes, ...restData } = updateVersionDto;
 
@@ -51,7 +51,6 @@ export class VersionsService {
       where: { id },
       data: {
         ...restData,
-        // Если клиент прислал новый массив изменений, мы удаляем все старые и записываем новые
         ...(changes && {
           changes: {
             deleteMany: {},
@@ -59,7 +58,7 @@ export class VersionsService {
           },
         }),
       },
-      include: { changes: true },
+      include: { changes: true, author: { select: { id: true, login: true, role: true } } },
     });
   }
 

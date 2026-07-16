@@ -4,36 +4,26 @@ import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
-  UserOutlined,
-  UserAddOutlined,
   FilterOutlined,
-  HeartOutlined,
-  HeartFilled,
   PushpinOutlined,
   PushpinFilled,
-  MessageOutlined,
   LockOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
-import { getProject, updateProject, deleteProject, getProjectMembers, addProjectMember, removeProjectMember } from '../api/projectsApi';
+import { getProject, updateProject, deleteProject } from '../api/projectsApi';
 import { getVersions, deleteVersion } from '../api/versionsApi';
-import { getUsers } from '../api/usersApi';
 import { useAuth } from '../auth/AuthContext';
 import { usePinnedTabs } from '../pinned/PinnedTabsContext';
 import { useFillPageSize } from '../hooks/useFillPageSize';
 import { PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS, isProjectLocked, isProjectReadOnly } from '../projectStatus';
-import type { VersionWithDetails, ProjectMember, Role } from '../types';
+import type { VersionWithDetails } from '../types';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-const ProjectBoardTab = lazy(() => import('./ProjectBoardTab').then(m => ({ default: m.ProjectBoardTab })));
-
-const ROLE_COLORS: Record<Role, string> = { Admin: 'purple', Developer: 'blue', Viewer: 'default' };
-
-const PROJECT_TAB_KEYS = ['versions', 'members', 'materials', 'chat', 'board'] as const;
+const PROJECT_TAB_KEYS = ['versions'] as const;
 type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
 
 export default function ProjectDetailPage() {
@@ -53,12 +43,6 @@ export default function ProjectDetailPage() {
   const [versionSearch, setVersionSearch] = useState('');
   const [versionDateRange, setVersionDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [versionPage, setVersionPage] = useState(1);
-  const [memberSearch, setMemberSearch] = useState('');
-  const [memberRoleFilter, setMemberRoleFilter] = useState<Role[]>([]);
-  const [memberPage, setMemberPage] = useState(1);
-  const [addMemberId, setAddMemberId] = useState<number | null>(null);
-  const [likedVersionIds, setLikedVersionIds] = useState<Set<number>>(new Set());
-  const [likedMemberIds, setLikedMemberIds] = useState<Set<number>>(new Set());
   const [form] = Form.useForm();
   const [headerNode, setHeaderNode] = useState<HTMLDivElement | null>(null);
   const [headerHeight, setHeaderHeight] = useState(0);
@@ -73,14 +57,6 @@ export default function ProjectDetailPage() {
   const canEditVersionsByRole = user?.role === 'Developer' || user?.role === 'Admin';
   const canEditProjectByRole = user?.role === 'Admin';
 
-  const toggleInSet = (setter: typeof setLikedVersionIds, id: number) =>
-    setter(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-
   const { data: project, isLoading: projectLoading } = useQuery({
     queryKey: ['project', projectId],
     queryFn: () => getProject(projectId),
@@ -91,12 +67,6 @@ export default function ProjectDetailPage() {
     queryFn: () => getVersions(projectId),
   });
 
-  const { data: members = [], isLoading: membersLoading } = useQuery({
-    queryKey: ['project-members', projectId],
-    queryFn: () => getProjectMembers(projectId),
-  });
-
-  const { data: allUsers = [] } = useQuery({ queryKey: ['users'], queryFn: getUsers });
   const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !isLoading);
 
   const updateProjectMutation = useMutation({
@@ -124,21 +94,7 @@ export default function ProjectDetailPage() {
     },
   });
 
-  const addMemberMutation = useMutation({
-    mutationFn: (userId: number) => addProjectMember(projectId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] });
-      setAddMemberId(null);
-    },
-  });
-
-  const removeMemberMutation = useMutation({
-    mutationFn: (userId: number) => removeProjectMember(projectId, userId),
-    onSuccess: () => queryClient.invalidateQueries({ queryKey: ['project-members', projectId] }),
-  });
-
   useEffect(() => setVersionPage(1), [versionSearch, versionDateRange, pageSize]);
-  useEffect(() => setMemberPage(1), [memberSearch, memberRoleFilter, pageSize]);
 
   if (projectLoading) {
     return (
@@ -166,18 +122,6 @@ export default function ProjectDetailPage() {
   const pagedVersions = filteredVersions.slice((versionPage - 1) * pageSize, versionPage * pageSize);
   const versionNumbers = new Map(versions.map((v, index) => [v.id, index + 1]));
 
-  const filteredMembers = members.filter(m => {
-    const matchesSearch = m.name.toLowerCase().includes(memberSearch.toLowerCase()) || m.email.toLowerCase().includes(memberSearch.toLowerCase());
-    const matchesRole = memberRoleFilter.length === 0 || memberRoleFilter.includes(m.role);
-    return matchesSearch && matchesRole;
-  });
-  const pagedMembers = filteredMembers.slice((memberPage - 1) * pageSize, memberPage * pageSize);
-  const memberNumbers = new Map(members.map((m, index) => [m.id, index + 1]));
-
-  const availableUsers = allUsers.filter(u => !members.some(m => m.id === u.id));
-
-  const isBoardTab = !isLocked && activeTab === 'board';
-
   return (
     <div
       style={{
@@ -186,23 +130,8 @@ export default function ProjectDetailPage() {
         flexDirection: 'column',
         flex: 1,
         minHeight: 0,
-        ...(isBoardTab ? { margin: '-32px -24px' } : {}),
       }}
     >
-      {isBoardTab && (
-        <div style={{ position: 'absolute', inset: 0, zIndex: 0, display: 'flex' }}>
-          <Suspense
-            fallback={
-              <div style={{ width: '100%', height: '100%', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Spin size="large" />
-              </div>
-            }
-          >
-            <ProjectBoardTab projectId={projectId} topInset={headerHeight} />
-          </Suspense>
-        </div>
-      )}
-
       <div
         ref={setHeaderNode}
         style={{
@@ -210,7 +139,8 @@ export default function ProjectDetailPage() {
           zIndex: 1,
           display: 'flex',
           flexDirection: 'column',
-          ...(isBoardTab ? { padding: '32px 24px 0', background: token.colorBgLayout } : { flex: 1, minHeight: 0 }),
+          flex: 1, 
+          minHeight: 0,
         }}
       >
       <Space wrap style={{ width: '100%', justifyContent: 'space-between', marginBottom: 20 }}>
@@ -228,22 +158,14 @@ export default function ProjectDetailPage() {
               <Text type="secondary">/</Text>
             </>
           )}
-          {isBoardTab ? (
-            <>
-              <Text type="secondary"><Link to={`/projects/${projectId}`} style={{ color: 'inherit' }}>{project.name}</Link></Text>
-              <Text type="secondary">/</Text>
-              <Title level={3} style={{ margin: 0 }}>Проектная доска</Title>
-            </>
-          ) : (
-            <>
-              <Title level={3} style={{ margin: 0 }}>{project.name}</Title>
-              <Tag color={PROJECT_STATUS_COLORS[project.status]}>{PROJECT_STATUS_LABELS[project.status]}</Tag>
-              <Text type="secondary">— {project.description}</Text>
-            </>
-          )}
+          <>
+            <Title level={3} style={{ margin: 0 }}>{project.name}</Title>
+            <Tag color={PROJECT_STATUS_COLORS[project.status]}>{PROJECT_STATUS_LABELS[project.status]}</Tag>
+            <Text type="secondary">— {project.description}</Text>
+          </>
         </Space>
         <Space wrap>
-          {readOnly && !isBoardTab && (
+          {readOnly && (
             <Text type="secondary">Проект доступен только для просмотра</Text>
           )}
           {canEditProject && (
@@ -285,10 +207,8 @@ export default function ProjectDetailPage() {
           return next;
         }, { replace: true })}
         destroyOnHidden
-        style={isBoardTab ? undefined : { flex: 1, minHeight: 0 }}
+        style={{ flex: 1, minHeight: 0 }}
         styles={{
-          header: isBoardTab ? { display: 'none' } : undefined,
-          body: isBoardTab ? { display: 'none' } : { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
           content: { flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column' },
         }}
         items={[
@@ -373,7 +293,7 @@ export default function ProjectDetailPage() {
                           <Link to={`/projects/${projectId}/versions/${row.id}`}>{versionLabel}</Link>
                         ),
                       },
-                      { title: 'Дата создания', dataIndex: 'createdAt' },
+                      { title: 'Дата создания', dataIndex: 'createdAt', render: (text: string) => text ? dayjs(text).format('DD.MM.YYYY HH:mm') : '—' },
                       { title: 'Автор', dataIndex: 'authorName' },
                       { title: 'Краткое описание', dataIndex: 'description' },
                       canEditVersions
@@ -383,7 +303,6 @@ export default function ProjectDetailPage() {
                             render: (_: unknown, row: VersionWithDetails) => (
                               <Space>
                                 <Button size="small" icon={<EditOutlined />} onClick={() => navigate(`/projects/${projectId}/versions/${row.id}/edit`)} />
-                                <Button size="small" icon={<MessageOutlined />} onClick={() => message.info('Функция пока в разработке')} />
                                 <Popconfirm title="Удалить версию?" onConfirm={() => deleteVersionMutation.mutate(row.id)} okText="Удалить" cancelText="Отмена">
                                   <Button size="small" danger icon={<DeleteOutlined />} />
                                 </Popconfirm>
@@ -391,19 +310,6 @@ export default function ProjectDetailPage() {
                             ),
                           }
                         : { title: '', key: 'actions', render: () => null },
-                      {
-                        title: 'Лайк',
-                        key: 'like',
-                        width: 80,
-                        render: (_: unknown, row: VersionWithDetails) => (
-                          <Button
-                            type="text"
-                            size="small"
-                            icon={likedVersionIds.has(row.id) ? <HeartFilled style={{ color: '#eb2f96' }} /> : <HeartOutlined />}
-                            onClick={() => toggleInSet(setLikedVersionIds, row.id)}
-                          />
-                        ),
-                      },
                     ]}
                   />
                   </div>
@@ -413,176 +319,6 @@ export default function ProjectDetailPage() {
                 </Card>
               </>
             ),
-          },
-          {
-            key: 'members',
-            label: 'Участники',
-            children: (
-              <>
-                <div style={{ display: 'flex', gap: 8, width: '100%', marginBottom: 16, flexWrap: 'wrap' }}>
-                  <Input.Search
-                    placeholder="Поиск участников"
-                    allowClear
-                    onChange={e => setMemberSearch(e.target.value)}
-                    style={{ flex: 1, minWidth: 200 }}
-                  />
-                  <Space wrap>
-                    <Popover
-                      trigger="click"
-                      placement="bottomRight"
-                      content={
-                        <div style={{ width: 180 }}>
-                          <Checkbox.Group
-                            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
-                            value={memberRoleFilter}
-                            onChange={value => setMemberRoleFilter(value as Role[])}
-                            options={(['Admin', 'Developer', 'Viewer'] as Role[]).map(r => ({ label: r, value: r }))}
-                          />
-                          {memberRoleFilter.length > 0 && (
-                            <Button type="link" size="small" style={{ padding: 0, marginTop: 8 }} onClick={() => setMemberRoleFilter([])}>
-                              Сбросить
-                            </Button>
-                          )}
-                        </div>
-                      }
-                    >
-                      <Button icon={<FilterOutlined />}>Фильтр{memberRoleFilter.length > 0 ? ` (${memberRoleFilter.length})` : ''}</Button>
-                    </Popover>
-                    {canEditProject && (
-                      <>
-                        <Select
-                          placeholder="Выберите пользователя"
-                          style={{ width: 240, maxWidth: '100%' }}
-                          value={addMemberId}
-                          options={availableUsers.map(u => ({ value: u.id, label: `${u.name} (${u.email})` }))}
-                          onChange={setAddMemberId}
-                          notFoundContent="Все пользователи уже добавлены"
-                        />
-                        <Button
-                          type="primary"
-                          icon={<UserAddOutlined />}
-                          disabled={addMemberId === null}
-                          loading={addMemberMutation.isPending}
-                          onClick={() => addMemberId !== null && addMemberMutation.mutate(addMemberId)}
-                        >
-                          Добавить участника
-                        </Button>
-                      </>
-                    )}
-                  </Space>
-                </div>
-
-                <Card
-                  style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
-                  styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', flex: 1 } }}
-                >
-                  <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-                    {(membersLoading || !isMeasured) && (
-                      <div
-                        style={{
-                          position: 'absolute',
-                          inset: 0,
-                          zIndex: 1,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          background: token.colorBgContainer,
-                        }}
-                      >
-                        <Spin />
-                      </div>
-                    )}
-                    <Table
-                      rowKey="id"
-                      loading={false}
-                      dataSource={pagedMembers}
-                      pagination={false}
-                      scroll={{ x: 'max-content' }}
-                      onRow={() => (rowHeight ? { style: { height: rowHeight } } : {})}
-                      locale={{ emptyText: 'В проекте пока нет участников' }}
-                      columns={[
-                        {
-                          title: 'N',
-                          key: 'index',
-                          width: 50,
-                          render: (_: unknown, row: ProjectMember) => memberNumbers.get(row.id),
-                        },
-                        {
-                          title: 'Участник',
-                          dataIndex: 'name',
-                          render: (name: string, row: ProjectMember) => (
-                            <Space>
-                              <Avatar src={row.avatarUrl} icon={!row.avatarUrl ? <UserOutlined /> : undefined} size="small" />
-                              <Link to={`/users/${row.id}`} state={{ fromProject: { id: projectId, name: project?.name ?? '' } }}>{name}</Link>
-                            </Space>
-                          ),
-                        },
-                        { title: 'Email', dataIndex: 'email' },
-                        {
-                          title: 'Роль',
-                          dataIndex: 'role',
-                          render: (role: Role) => <Tag color={ROLE_COLORS[role]} style={{ width: 84, textAlign: 'center' }}>{role}</Tag>,
-                        },
-                        { title: 'Дата добавления', dataIndex: 'addedAt' },
-                        canEditProject
-                          ? {
-                              title: 'Действия',
-                              key: 'actions',
-                              render: (_: unknown, row: ProjectMember) => (
-                                <Space>
-                                  <Button size="small" icon={<MessageOutlined />} onClick={() => message.info('Функция пока в разработке')} />
-                                  <Popconfirm title="Убрать участника из проекта?" onConfirm={() => removeMemberMutation.mutate(row.id)} okText="Убрать" cancelText="Отмена">
-                                    <Button size="small" danger icon={<DeleteOutlined />} />
-                                  </Popconfirm>
-                                </Space>
-                              ),
-                            }
-                          : { title: '', key: 'actions', render: () => null },
-                        {
-                          title: 'Лайк',
-                          key: 'like',
-                          width: 80,
-                          render: (_: unknown, row: ProjectMember) => (
-                            <Button
-                              type="text"
-                              size="small"
-                              icon={likedMemberIds.has(row.id) ? <HeartFilled style={{ color: '#eb2f96' }} /> : <HeartOutlined />}
-                              onClick={() => toggleInSet(setLikedMemberIds, row.id)}
-                            />
-                          ),
-                        },
-                      ]}
-                    />
-                  </div>
-                  <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 24px', borderTop: `1px solid ${token.colorBorderSecondary}` }}>
-                    <Pagination current={memberPage} pageSize={pageSize} total={filteredMembers.length} onChange={setMemberPage} />
-                  </div>
-                </Card>
-              </>
-            ),
-          },
-          {
-            key: 'materials',
-            label: 'Материалы',
-            children: (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Empty description="Этот раздел пока что в разработке" />
-              </div>
-            ),
-          },
-          {
-            key: 'chat',
-            label: 'Проектный чат',
-            children: (
-              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-                <Empty description="Этот раздел пока что в разработке" />
-              </div>
-            ),
-          },
-          {
-            key: 'board',
-            label: 'Проектная доска',
-            children: null,
           },
         ]}
       />

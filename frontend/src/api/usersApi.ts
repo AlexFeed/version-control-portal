@@ -1,81 +1,116 @@
-import { users, projects, projectMembers, takeNextUserId } from './mockData';
+import { fetchApi } from './apiClient';
 import type { User, Role, MemberProject } from '../types';
 
-const DELAY_MS = 300;
+const mapRole = (role: string): Role => {
+  if (role === 'ADMIN') return 'Admin';
+  if (role === 'DEVELOPER') return 'Developer';
+  return 'Viewer';
+};
 
-function delay<T>(value: T): Promise<T> {
-  return new Promise(resolve => setTimeout(() => resolve(value), DELAY_MS));
-}
+const mapRoleToBackend = (role: Role): string => {
+  return role.toUpperCase();
+};
 
-export function getUsers(): Promise<User[]> {
-  return delay([...users]);
-}
+const mapUser = (backendUser: any): User => ({
+  id: backendUser.id,
+  name: backendUser.login,
+  email: backendUser.login,
+  role: mapRole(backendUser.role),
+  createdAt: new Date().toISOString(), // Mock createdAt
+  avatarUrl: backendUser.avatarUrl || undefined,
+});
 
-export function createUser(data: { name: string; email: string; role: Role }): Promise<User> {
-  const user: User = { id: takeNextUserId(), ...data, createdAt: new Date().toISOString().slice(0, 10) };
-  users.push(user);
-  return delay(user);
-}
+export const getUsers = async (): Promise<User[]> => {
+  const users = await fetchApi('/users');
+  return users.map(mapUser);
+};
 
-export function updateUserRole(id: number, role: Role): Promise<User> {
-  const user = users.find(u => u.id === id);
-  if (!user) throw new Error(`User ${id} not found`);
-  user.role = role;
-  return delay(user);
-}
-
-export function updateUser(id: number, data: { name: string; email: string }): Promise<User> {
-  const user = users.find(u => u.id === id);
-  if (!user) throw new Error(`User ${id} not found`);
-  user.name = data.name;
-  user.email = data.email;
-  return delay(user);
-}
-
-export function updateUserAvatar(id: number, avatarUrl: string): Promise<User> {
-  const user = users.find(u => u.id === id);
-  if (!user) throw new Error(`User ${id} not found`);
-  user.avatarUrl = avatarUrl;
-  return delay(user);
-}
-
-// Resolves the demo login to a real mock user so profile edits (like avatar)
-// are visible in the users/members tables instead of being a disconnected identity.
-export function findLoginUser(email?: string, role?: Role): User {
-  const normalizedEmail = email?.trim().toLowerCase();
-  const byEmail = normalizedEmail ? users.find(u => u.email.toLowerCase() === normalizedEmail) : undefined;
-  return byEmail ?? users.find(u => u.role === role) ?? users[0];
-}
-
-export function deleteUser(id: number): Promise<void> {
-  const index = users.findIndex(u => u.id === id);
-  if (index !== -1) users.splice(index, 1);
-  for (let i = projectMembers.length - 1; i >= 0; i--) {
-    if (projectMembers[i].userId === id) projectMembers.splice(i, 1);
+export const getUser = async (id: number): Promise<User | undefined> => {
+  try {
+    const user = await fetchApi(`/users/${id}`);
+    return mapUser(user);
+  } catch (e) {
+    return undefined;
   }
-  return delay(undefined);
-}
+};
 
-export function getUser(id: number): Promise<User | undefined> {
-  return delay(users.find(u => u.id === id));
-}
+export const createUser = async (data: { login: string; password?: string; role: Role }): Promise<User> => {
+  const user = await fetchApi('/users', {
+    method: 'POST',
+    body: JSON.stringify({
+      login: data.login,
+      password: data.password || 'password123',
+      role: mapRoleToBackend(data.role),
+    }),
+  });
+  return mapUser(user);
+};
 
-export function getUserProjects(userId: number): Promise<MemberProject[]> {
-  const memberProjects = projectMembers
-    .filter(m => m.userId === userId)
-    .map(m => {
-      const project = projects.find(p => p.id === m.projectId);
-      return project ? { ...project, addedAt: m.addedAt } : undefined;
-    })
-    .filter((p): p is MemberProject => p !== undefined);
-  return delay(memberProjects);
-}
+export const updateUser = async (id: number, data: { login?: string; password?: string }): Promise<User> => {
+  const user = await fetchApi(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ 
+      ...(data.login && { login: data.login }),
+      ...(data.password && { password: data.password }),
+    }),
+  });
+  return mapUser(user);
+};
 
-export function getActiveProjectCounts(): Promise<Record<number, number>> {
-  const counts: Record<number, number> = {};
-  for (const m of projectMembers) {
-    const project = projects.find(p => p.id === m.projectId);
-    if (project?.status === 'in_progress') counts[m.userId] = (counts[m.userId] ?? 0) + 1;
+export const updateUserRole = async (id: number, role: Role): Promise<User> => {
+  const user = await fetchApi(`/users/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ role: mapRoleToBackend(role) }),
+  });
+  return mapUser(user);
+};
+
+export const deleteUser = async (id: number): Promise<void> => {
+  return fetchApi(`/users/${id}`, {
+    method: 'DELETE',
+  });
+};
+
+export const updateUserAvatar = async (id: number, file: File): Promise<User> => {
+  const formData = new FormData();
+  formData.append('file', file);
+
+  const token = localStorage.getItem('auth_token');
+  const headers = new Headers();
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`);
   }
-  return delay(counts);
-}
+
+  const response = await fetch(`http://localhost:3000/users/${id}/avatar`, {
+    method: 'POST',
+    body: formData,
+    headers,
+  });
+
+  if (!response.ok) {
+    throw new Error('Ошибка загрузки аватара');
+  }
+
+  const user = await response.json();
+  return mapUser(user);
+};
+
+export const findLoginUser = (_email?: string, _role?: any): User => {
+  return { id: 1, name: 'Admin', email: 'admin@example.com', role: 'Admin', createdAt: new Date().toISOString() };
+};
+
+export const getUserProjects = async (userId: number): Promise<MemberProject[]> => {
+  const projects = await fetchApi(`/users/${userId}/projects`);
+  return projects.map((p: any) => ({
+    id: p.id,
+    name: p.name,
+    description: p.description,
+    status: p.status || 'in_progress',
+    createdAt: new Date().toISOString(),
+    addedAt: p.addedAt || new Date().toISOString(),
+  }));
+};
+
+export const getActiveProjectCounts = async (): Promise<Record<number, number>> => {
+  return {};
+};

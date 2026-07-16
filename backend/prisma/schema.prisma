@@ -22,9 +22,10 @@ enum Role {
 
 model User {
   id       Int       @id @default(autoincrement())
-  login    String    @unique                      
-  password String                                 
-  role     Role      @default(VIEWER)             
+  login     String    @unique                      
+  password  String                                 
+  role      Role      @default(VIEWER)
+  avatarUrl String?
 
   // Связь: один пользователь может создать много версий
   versions Version[]

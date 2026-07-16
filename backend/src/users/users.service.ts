@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, ConflictException } from '@nestjs/common';
+import { Injectable, NotFoundException, ConflictException, ForbiddenException } from '@nestjs/common';
 import { CreateUserDto } from './dto/create-user.dto';
 import { UpdateUserDto } from './dto/update-user.dto';
 import { PrismaService } from '../prisma/prisma.service';
@@ -48,9 +48,81 @@ export class UsersService {
     return result;
   }
 
-  async update(id: number, updateUserDto: UpdateUserDto) {
-    const { role } = updateUserDto;
+  async findProjects(id: number) {
+    // Projects where the user has created at least one version
+    const userWithVersions = await this.prisma.user.findUnique({
+      where: { id },
+      include: {
+        versions: {
+          include: {
+            project: true,
+          },
+        },
+      },
+    });
 
+    if (!userWithVersions) {
+      throw new NotFoundException(`Пользователь #${id} не найден`);
+    }
+
+    // Extract unique projects from versions
+    const uniqueProjectsMap = new Map();
+    userWithVersions.versions.forEach(v => {
+      if (!uniqueProjectsMap.has(v.project.id)) {
+        uniqueProjectsMap.set(v.project.id, {
+          ...v.project,
+          addedAt: v.createdAt, // use first version creation time as addedAt
+        });
+      }
+    });
+
+    return Array.from(uniqueProjectsMap.values());
+  }
+
+  async update(id: number, updateUserDto: UpdateUserDto, currentUser?: any) {
+    const { role, login, password } = updateUserDto;
+
+    const user = await this.prisma.user.findUnique({ where: { id } });
+    if (!user) {
+      throw new NotFoundException(`Пользователь #${id} не найден`);
+    }
+
+    if (currentUser && role !== undefined && role !== user.role) {
+      if (currentUser.userId === id) {
+        throw new ForbiddenException('Вы не можете изменить собственную роль');
+      }
+      if (user.role === Role.ADMIN) {
+        throw new ForbiddenException('Вы не можете изменять роли других администраторов');
+      }
+    }
+
+    if (login && login !== user.login) {
+      const existingUser = await this.prisma.user.findUnique({ where: { login } });
+      if (existingUser) {
+        throw new ConflictException('Пользователь с таким логином уже существует');
+      }
+    }
+
+    let hashedPassword: string | undefined = undefined;
+    if (password) {
+      hashedPassword = await bcrypt.hash(password, 10);
+    }
+
+    const dataToUpdate: any = {};
+    if (role !== undefined) dataToUpdate.role = role;
+    if (login !== undefined) dataToUpdate.login = login;
+    if (hashedPassword !== undefined) dataToUpdate.password = hashedPassword;
+
+    const updatedUser = await this.prisma.user.update({
+      where: { id },
+      data: dataToUpdate,
+    });
+
+    const { password: _, ...result } = updatedUser;
+    return result;
+  }
+
+  async updateAvatar(id: number, avatarUrl: string) {
     const user = await this.prisma.user.findUnique({ where: { id } });
     if (!user) {
       throw new NotFoundException(`Пользователь #${id} не найден`);
@@ -58,7 +130,7 @@ export class UsersService {
 
     const updatedUser = await this.prisma.user.update({
       where: { id },
-      data: { role },
+      data: { avatarUrl },
     });
 
     const { password, ...result } = updatedUser;

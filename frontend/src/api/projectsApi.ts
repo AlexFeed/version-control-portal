@@ -1,69 +1,65 @@
-import { projects, users, projectMembers, takeNextProjectId } from './mockData';
+import { fetchApi } from './apiClient';
 import type { Project, ProjectMember, ProjectStatus } from '../types';
 
-const DELAY_MS = 300;
+const mapProject = (backendProject: any): Project => ({
+  id: backendProject.id,
+  name: backendProject.name,
+  description: backendProject.description,
+  status: 'in_progress', // Mock status as backend doesn't have it
+  createdAt: new Date().toISOString(), // Mock date as backend doesn't have it
+});
 
-function delay<T>(value: T): Promise<T> {
-  return new Promise(resolve => setTimeout(() => resolve(value), DELAY_MS));
-}
+export const getProjects = async (): Promise<Project[]> => {
+  const projects = await fetchApi('/projects');
+  return projects.map(mapProject);
+};
 
-export function getProjects(): Promise<Project[]> {
-  return delay([...projects]);
-}
-
-export function getProject(id: number): Promise<Project | undefined> {
-  return delay(projects.find(p => p.id === id));
-}
-
-export function createProject(data: { name: string; description: string }): Promise<Project> {
-  const project: Project = { id: takeNextProjectId(), ...data, status: 'in_progress', createdAt: new Date().toISOString().slice(0, 10) };
-  projects.push(project);
-  return delay(project);
-}
-
-export function updateProject(id: number, data: { name: string; description: string }): Promise<Project> {
-  const project = projects.find(p => p.id === id);
-  if (!project) throw new Error(`Project ${id} not found`);
-  project.name = data.name;
-  project.description = data.description;
-  return delay(project);
-}
-
-export function updateProjectStatus(id: number, status: ProjectStatus): Promise<Project> {
-  const project = projects.find(p => p.id === id);
-  if (!project) throw new Error(`Project ${id} not found`);
-  project.status = status;
-  return delay(project);
-}
-
-export function deleteProject(id: number): Promise<void> {
-  const index = projects.findIndex(p => p.id === id);
-  if (index !== -1) projects.splice(index, 1);
-  for (let i = projectMembers.length - 1; i >= 0; i--) {
-    if (projectMembers[i].projectId === id) projectMembers.splice(i, 1);
+export const getProject = async (id: number): Promise<Project | undefined> => {
+  try {
+    const project = await fetchApi(`/projects/${id}`);
+    return mapProject(project);
+  } catch (e) {
+    return undefined;
   }
-  return delay(undefined);
-}
+};
 
-export function getProjectMembers(projectId: number): Promise<ProjectMember[]> {
-  const entries = projectMembers.filter(m => m.projectId === projectId);
-  const members = entries
-    .map(entry => {
-      const user = users.find(u => u.id === entry.userId);
-      return user ? { ...user, addedAt: entry.addedAt } : undefined;
-    })
-    .filter((m): m is ProjectMember => m !== undefined);
-  return delay(members);
-}
+export const createProject = async (data: { name: string; description: string }): Promise<Project> => {
+  const project = await fetchApi('/projects', {
+    method: 'POST',
+    body: JSON.stringify(data),
+  });
+  return mapProject(project);
+};
 
-export function addProjectMember(projectId: number, userId: number): Promise<void> {
-  const exists = projectMembers.some(m => m.projectId === projectId && m.userId === userId);
-  if (!exists) projectMembers.push({ projectId, userId, addedAt: new Date().toISOString().slice(0, 10) });
-  return delay(undefined);
-}
+export const updateProject = async (id: number, data: { name?: string; description?: string }): Promise<Project> => {
+  const project = await fetchApi(`/projects/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify(data),
+  });
+  return mapProject(project);
+};
 
-export function removeProjectMember(projectId: number, userId: number): Promise<void> {
-  const index = projectMembers.findIndex(m => m.projectId === projectId && m.userId === userId);
-  if (index !== -1) projectMembers.splice(index, 1);
-  return delay(undefined);
-}
+export const deleteProject = async (id: number): Promise<void> => {
+  return fetchApi(`/projects/${id}`, {
+    method: 'DELETE',
+  });
+};
+
+// --- Mocks for features not supported by backend ---
+export const updateProjectStatus = async (id: number, status: ProjectStatus): Promise<Project> => {
+  const p = await getProject(id);
+  if (!p) throw new Error('Not found');
+  return { ...p, status };
+};
+
+export const getProjectMembers = async (_projectId: number): Promise<ProjectMember[]> => {
+  return [];
+};
+
+export const addProjectMember = async (_projectId: number, _userId: number): Promise<void> => {
+  return Promise.resolve();
+};
+
+export const removeProjectMember = async (_projectId: number, _userId: number): Promise<void> => {
+  return Promise.resolve();
+};

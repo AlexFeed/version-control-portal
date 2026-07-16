@@ -1,32 +1,5 @@
-import { versions, changes, users, takeNextVersionId, takeNextChangeId } from './mockData';
+import { fetchApi } from './apiClient';
 import type { VersionWithDetails } from '../types';
-
-const DELAY_MS = 300;
-
-function delay<T>(value: T): Promise<T> {
-  return new Promise(resolve => setTimeout(() => resolve(value), DELAY_MS));
-}
-
-function toVersionWithDetails(versionId: number): VersionWithDetails {
-  const version = versions.find(v => v.id === versionId);
-  if (!version) throw new Error(`Version ${versionId} not found`);
-  const author = users.find(u => u.id === version.authorId);
-  const versionChanges = changes.filter(c => c.versionId === versionId);
-  return { ...version, authorName: author?.name ?? 'Неизвестно', changes: versionChanges };
-}
-
-export function getVersions(projectId: number): Promise<VersionWithDetails[]> {
-  const list = versions
-    .filter(v => v.projectId === projectId)
-    .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
-    .map(v => toVersionWithDetails(v.id));
-  return delay(list);
-}
-
-export function getVersion(id: number): Promise<VersionWithDetails | undefined> {
-  const exists = versions.some(v => v.id === id);
-  return delay(exists ? toVersionWithDetails(id) : undefined);
-}
 
 interface VersionInput {
   version: string;
@@ -34,45 +7,63 @@ interface VersionInput {
   changeDescriptions: string[];
 }
 
-export function createVersion(projectId: number, data: VersionInput, authorId = 1): Promise<VersionWithDetails> {
-  const id = takeNextVersionId();
-  versions.push({
-    id,
-    projectId,
-    version: data.version,
-    description: data.description,
-    createdAt: new Date().toISOString().slice(0, 10),
-    authorId,
-    fileName: `release-${data.version}.zip`,
-    fileSizeMb: 0,
-  });
-  data.changeDescriptions.forEach(description => {
-    changes.push({ id: takeNextChangeId(), versionId: id, description });
-  });
-  return delay(toVersionWithDetails(id));
-}
+const mapVersion = (backendVersion: any): VersionWithDetails => ({
+  id: backendVersion.id,
+  projectId: backendVersion.projectId,
+  version: backendVersion.version,
+  description: backendVersion.description,
+  createdAt: backendVersion.createdAt || new Date().toISOString(),
+  authorId: backendVersion.authorId,
+  fileName: `release-${backendVersion.version}.zip`,
+  fileSizeMb: 0,
+  authorName: backendVersion.author?.login || 'Неизвестно',
+  changes: backendVersion.changes || [],
+});
 
-export function updateVersion(id: number, data: VersionInput): Promise<VersionWithDetails> {
-  const version = versions.find(v => v.id === id);
-  if (!version) throw new Error(`Version ${id} not found`);
-  version.version = data.version;
-  version.description = data.description;
+export const getVersions = async (projectId: number): Promise<VersionWithDetails[]> => {
+  const versions = await fetchApi('/versions');
+  return versions
+    .filter((v: any) => v.projectId === projectId)
+    .sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+    .map(mapVersion);
+};
 
-  for (let i = changes.length - 1; i >= 0; i--) {
-    if (changes[i].versionId === id) changes.splice(i, 1);
+export const getVersion = async (id: number): Promise<VersionWithDetails | undefined> => {
+  try {
+    const version = await fetchApi(`/versions/${id}`);
+    return mapVersion(version);
+  } catch (e) {
+    return undefined;
   }
-  data.changeDescriptions.forEach(description => {
-    changes.push({ id: takeNextChangeId(), versionId: id, description });
+};
+
+export const createVersion = async (projectId: number, data: VersionInput, _authorId: number = 1): Promise<VersionWithDetails> => {
+  const version = await fetchApi('/versions', {
+    method: 'POST',
+    body: JSON.stringify({
+      projectId,
+      version: data.version,
+      description: data.description,
+      changes: data.changeDescriptions,
+    }),
   });
+  return mapVersion(version);
+};
 
-  return delay(toVersionWithDetails(id));
-}
+export const updateVersion = async (id: number, data: VersionInput): Promise<VersionWithDetails> => {
+  const version = await fetchApi(`/versions/${id}`, {
+    method: 'PATCH',
+    body: JSON.stringify({
+      version: data.version,
+      description: data.description,
+      changes: data.changeDescriptions,
+    }),
+  });
+  return mapVersion(version);
+};
 
-export function deleteVersion(id: number): Promise<void> {
-  const index = versions.findIndex(v => v.id === id);
-  if (index !== -1) versions.splice(index, 1);
-  for (let i = changes.length - 1; i >= 0; i--) {
-    if (changes[i].versionId === id) changes.splice(i, 1);
-  }
-  return delay(undefined);
-}
+export const deleteVersion = async (id: number): Promise<void> => {
+  return fetchApi(`/versions/${id}`, {
+    method: 'DELETE',
+  });
+};

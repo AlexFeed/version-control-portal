@@ -54,9 +54,6 @@ export function AppLayout() {
     { key: '/projects', icon: <ProjectOutlined />, label: 'Проекты' },
     ...(user?.role === 'Admin' ? [{ key: '/users', icon: <TeamOutlined />, label: 'Пользователи' }] : []),
     { key: '/chat', icon: <MessageOutlined />, label: 'Глобальный чат' },
-    { key: '/board', icon: <AppstoreOutlined />, label: 'Глобальная доска' },
-    { key: '/search', icon: <SearchOutlined />, label: 'Глобальный поиск' },
-    { key: '/history', icon: <HistoryOutlined />, label: 'Глобальная история' },
   ];
 
   const staticItems = coreTabs.filter(tab => !isCoreHidden(tab.key));

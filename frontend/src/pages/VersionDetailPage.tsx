@@ -2,6 +2,7 @@ import { Space, Typography, Descriptions, Card, Spin, Empty, Button } from 'antd
 import { EditOutlined } from '@ant-design/icons';
 import { useQuery } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
+import dayjs from 'dayjs';
 import { getVersion } from '../api/versionsApi';
 import { getProject } from '../api/projectsApi';
 import { useAuth } from '../auth/AuthContext';
@@ -60,14 +61,13 @@ export default function VersionDetailPage() {
       <Card>
         <Descriptions column={1} size="small" bordered>
           <Descriptions.Item label="Статус">Опубликована</Descriptions.Item>
-          <Descriptions.Item label="Дата публикации">{version.createdAt}</Descriptions.Item>
+          <Descriptions.Item label="Дата публикации">{dayjs(version.createdAt).format('DD.MM.YYYY HH:mm')}</Descriptions.Item>
           <Descriptions.Item label="Автор публикации">{version.authorName}</Descriptions.Item>
           <Descriptions.Item label="Изменения">
             <ul style={{ margin: 0, paddingLeft: 20 }}>
               {version.changes.map(change => <li key={change.id}>{change.description}</li>)}
             </ul>
           </Descriptions.Item>
-          <Descriptions.Item label="Файлы">{version.fileName} ({version.fileSizeMb} МБ)</Descriptions.Item>
         </Descriptions>
       </Card>
     </div>
