@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Layout, Avatar, Space, Dropdown, Button, Typography } from 'antd';
-import { UserOutlined, ProjectOutlined, TeamOutlined, MessageOutlined, AppstoreOutlined, HistoryOutlined, SearchOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
+import { UserOutlined, ProjectOutlined, TeamOutlined, MessageOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePinnedTabs } from '../pinned/PinnedTabsContext';
