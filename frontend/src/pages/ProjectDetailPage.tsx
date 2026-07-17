@@ -22,7 +22,7 @@ import { ProjectMembersModal } from '../components/ProjectMembersModal';
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-const PROJECT_TAB_KEYS = ['versions', 'members'] as const;
+const PROJECT_TAB_KEYS = ['versions', 'members', 'materials', 'chat', 'board'] as const;
 type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
 
 const ROLE_COLORS: Record<Role, string> = { Admin: 'purple', Developer: 'blue', Viewer: 'default' };
@@ -472,6 +472,33 @@ export default function ProjectDetailPage() {
                   </div>
                 </Card>
               </>
+            ),
+          },
+          {
+            key: 'materials',
+            label: 'Материалы',
+            children: (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Result title="Материалы" subTitle="Раздел в разработке. Скоро здесь появятся материалы проекта." />
+              </div>
+            ),
+          },
+          {
+            key: 'chat',
+            label: 'Проектный чат',
+            children: (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Result title="Проектный чат" subTitle="Раздел в разработке. Скоро здесь появится чат проекта." />
+              </div>
+            ),
+          },
+          {
+            key: 'board',
+            label: 'Проектная доска',
+            children: (
+              <div style={{ flex: 1, display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+                <Result title="Проектная доска" subTitle="Раздел в разработке. Скоро здесь появится доска проекта." />
+              </div>
             ),
           },
         ]}
