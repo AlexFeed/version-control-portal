@@ -1,6 +1,6 @@
 import { useState, type ReactNode } from 'react';
 import { Layout, Avatar, Space, Dropdown, Button, Typography } from 'antd';
-import { UserOutlined, ProjectOutlined, TeamOutlined, MessageOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
+import { UserOutlined, ProjectOutlined, TeamOutlined, MessageOutlined, PushpinOutlined, PushpinFilled, AppstoreOutlined, SearchOutlined, HistoryOutlined } from '@ant-design/icons';
 import { Link, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../auth/AuthContext';
 import { usePinnedTabs } from '../pinned/PinnedTabsContext';
@@ -54,6 +54,9 @@ export function AppLayout() {
     { key: '/projects', icon: <ProjectOutlined />, label: 'Проекты' },
     ...(user?.role === 'Admin' ? [{ key: '/users', icon: <TeamOutlined />, label: 'Пользователи' }] : []),
     { key: '/chat', icon: <MessageOutlined />, label: 'Глобальный чат' },
+    { key: '/board', icon: <AppstoreOutlined />, label: 'Глобальная доска' },
+    { key: '/search', icon: <SearchOutlined />, label: 'Глобальный поиск' },
+    { key: '/history', icon: <HistoryOutlined />, label: 'Глобальная история' },
   ];
 
   const staticItems = coreTabs.filter(tab => !isCoreHidden(tab.key));
