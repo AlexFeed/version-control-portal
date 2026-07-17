@@ -1,37 +1,37 @@
-import { lazy, Suspense, useEffect, useState } from 'react';
-import { Typography, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Card, Tabs, Select, Avatar, Pagination, Spin, Empty, Popover, DatePicker, Tag, Checkbox, theme, Result } from 'antd';
+import { useEffect, useState } from 'react';
+import { Typography, Table, Button, Modal, Form, Input, Space, Popconfirm, message, Card, Tabs, Avatar, Pagination, Spin, Empty, Popover, DatePicker, Tag, Checkbox, theme, Result } from 'antd';
 import {
   PlusOutlined,
   EditOutlined,
   DeleteOutlined,
   FilterOutlined,
-  PushpinOutlined,
-  PushpinFilled,
   LockOutlined,
+  UserOutlined,
 } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
-import { getProject, updateProject, deleteProject } from '../api/projectsApi';
+import { getProject, updateProject, deleteProject, getProjectMembers, updateProjectMembers } from '../api/projectsApi';
 import { getVersions, deleteVersion } from '../api/versionsApi';
 import { useAuth } from '../auth/AuthContext';
-import { usePinnedTabs } from '../pinned/PinnedTabsContext';
 import { useFillPageSize } from '../hooks/useFillPageSize';
 import { PROJECT_STATUS_COLORS, PROJECT_STATUS_LABELS, isProjectLocked, isProjectReadOnly } from '../projectStatus';
-import type { VersionWithDetails } from '../types';
+import type { VersionWithDetails, User, Role } from '../types';
+import { ProjectMembersModal } from '../components/ProjectMembersModal';
 
 const { Title, Text } = Typography;
 const { RangePicker } = DatePicker;
 
-const PROJECT_TAB_KEYS = ['versions'] as const;
+const PROJECT_TAB_KEYS = ['versions', 'members'] as const;
 type ProjectTabKey = (typeof PROJECT_TAB_KEYS)[number];
+
+const ROLE_COLORS: Record<Role, string> = { Admin: 'purple', Developer: 'blue', Viewer: 'default' };
 
 export default function ProjectDetailPage() {
   const { token } = theme.useToken();
   const { id } = useParams();
   const projectId = Number(id);
   const { user } = useAuth();
-  const { isPinned, togglePin } = usePinnedTabs();
   const navigate = useNavigate();
   const location = useLocation();
   const fromUser = (location.state as { fromUser?: { id: number; name: string } } | null)?.fromUser;
@@ -40,16 +40,24 @@ export default function ProjectDetailPage() {
   const activeTab: ProjectTabKey = PROJECT_TAB_KEYS.includes(activeTabParam as ProjectTabKey) ? (activeTabParam as ProjectTabKey) : 'versions';
   const queryClient = useQueryClient();
   const [editModalOpen, setEditModalOpen] = useState(false);
+  const [membersModalOpen, setMembersModalOpen] = useState(false);
+  
+  // Versions Tab state
   const [versionSearch, setVersionSearch] = useState('');
   const [versionDateRange, setVersionDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [versionPage, setVersionPage] = useState(1);
+  
+  // Members Tab state
+  const [membersSearch, setMembersSearch] = useState('');
+  const [membersRoleFilter, setMembersRoleFilter] = useState<Role[]>([]);
+  const [membersPage, setMembersPage] = useState(1);
+
   const [form] = Form.useForm();
   const [headerNode, setHeaderNode] = useState<HTMLDivElement | null>(null);
-  const [headerHeight, setHeaderHeight] = useState(0);
 
   useEffect(() => {
     if (!headerNode) return;
-    const observer = new ResizeObserver(([entry]) => setHeaderHeight((entry.target as HTMLElement).offsetHeight));
+    const observer = new ResizeObserver(() => {});
     observer.observe(headerNode);
     return () => observer.disconnect();
   }, [headerNode]);
@@ -62,12 +70,17 @@ export default function ProjectDetailPage() {
     queryFn: () => getProject(projectId),
   });
 
-  const { data: versions = [], isLoading } = useQuery({
+  const { data: versions = [], isLoading: versionsLoading } = useQuery({
     queryKey: ['versions', projectId],
     queryFn: () => getVersions(projectId),
   });
 
-  const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !isLoading);
+  const { data: members = [], isLoading: membersLoading } = useQuery({
+    queryKey: ['project-members', projectId],
+    queryFn: () => getProjectMembers(projectId),
+  });
+
+  const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !versionsLoading && !membersLoading);
 
   const updateProjectMutation = useMutation({
     mutationFn: (values: { name: string; description: string }) => updateProject(projectId, values),
@@ -94,7 +107,15 @@ export default function ProjectDetailPage() {
     },
   });
 
+  const updateMembersMutation = useMutation({
+    mutationFn: (userIds: number[]) => updateProjectMembers(projectId, userIds),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['project-members', projectId] });
+    },
+  });
+
   useEffect(() => setVersionPage(1), [versionSearch, versionDateRange, pageSize]);
+  useEffect(() => setMembersPage(1), [membersSearch, membersRoleFilter, pageSize]);
 
   if (projectLoading) {
     return (
@@ -113,14 +134,23 @@ export default function ProjectDetailPage() {
   const canEditVersions = canEditVersionsByRole && !readOnly;
   const canEditProject = canEditProjectByRole && !readOnly;
 
-  const filteredVersions = versions.filter(v => {
+  // Pagination for Versions
+  const filteredVersions = versions.filter((v: VersionWithDetails) => {
     const matchesSearch = v.version.toLowerCase().includes(versionSearch.toLowerCase()) || v.description.toLowerCase().includes(versionSearch.toLowerCase());
     const matchesDate =
       !versionDateRange || (!dayjs(v.createdAt).isBefore(versionDateRange[0], 'day') && !dayjs(v.createdAt).isAfter(versionDateRange[1], 'day'));
     return matchesSearch && matchesDate;
   });
   const pagedVersions = filteredVersions.slice((versionPage - 1) * pageSize, versionPage * pageSize);
-  const versionNumbers = new Map(versions.map((v, index) => [v.id, index + 1]));
+  const versionNumbers = new Map(versions.map((v: VersionWithDetails, index: number) => [v.id, index + 1]));
+
+  const filteredMembers = members.filter((m: User) => {
+    const matchesSearch = m.name.toLowerCase().includes(membersSearch.toLowerCase());
+    const matchesRole = membersRoleFilter.length === 0 || membersRoleFilter.includes(m.role);
+    return matchesSearch && matchesRole;
+  });
+  const pagedMembers = filteredMembers.slice((membersPage - 1) * pageSize, membersPage * pageSize);
+  const memberNumbers = new Map(members.map((m: User, index: number) => [m.id, index + 1]));
 
   return (
     <div
@@ -171,14 +201,6 @@ export default function ProjectDetailPage() {
           {canEditProject && (
             <Button icon={<EditOutlined />} onClick={() => { form.setFieldsValue(project); setEditModalOpen(true); }}>
               Редактировать проект
-            </Button>
-          )}
-          {canEditProjectByRole && (
-            <Button
-              icon={isPinned(`/projects/${projectId}`) ? <PushpinFilled /> : <PushpinOutlined />}
-              onClick={() => togglePin({ key: `/projects/${projectId}`, label: project.name, type: 'project' })}
-            >
-              {isPinned(`/projects/${projectId}`) ? 'Открепить' : 'Закрепить'}
             </Button>
           )}
           {canEditProject && (
@@ -257,7 +279,7 @@ export default function ProjectDetailPage() {
                   styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', flex: 1 } }}
                 >
                   <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
-                  {(isLoading || !isMeasured) && (
+                  {(versionsLoading || !isMeasured) && (
                     <div
                       style={{
                         position: 'absolute',
@@ -320,6 +342,138 @@ export default function ProjectDetailPage() {
               </>
             ),
           },
+          {
+            key: 'members',
+            label: 'Участники',
+            children: (
+              <>
+                <div style={{ display: 'flex', gap: 8, width: '100%', marginBottom: 16, flexWrap: 'wrap' }}>
+                  <Input.Search
+                    placeholder="Поиск участников..."
+                    allowClear
+                    onChange={e => setMembersSearch(e.target.value)}
+                    style={{ flex: 1, minWidth: 200 }}
+                  />
+                  <Space wrap>
+                    <Popover
+                      trigger="click"
+                      placement="bottomRight"
+                      content={
+                        <div style={{ width: 180 }}>
+                          <Checkbox.Group
+                            style={{ display: 'flex', flexDirection: 'column', gap: 8 }}
+                            value={membersRoleFilter}
+                            onChange={value => setMembersRoleFilter(value as Role[])}
+                            options={(['Admin', 'Developer', 'Viewer'] as Role[]).map(r => ({ label: r, value: r }))}
+                          />
+                          {membersRoleFilter.length > 0 && (
+                            <Button type="link" size="small" style={{ padding: 0, marginTop: 8 }} onClick={() => setMembersRoleFilter([])}>
+                              Сбросить
+                            </Button>
+                          )}
+                        </div>
+                      }
+                    >
+                      <Button icon={<FilterOutlined />}>Фильтр{membersRoleFilter.length > 0 ? ` (${membersRoleFilter.length})` : ''}</Button>
+                    </Popover>
+                    {user?.role === 'Admin' && (
+                      <Button type="primary" icon={<PlusOutlined />} onClick={() => setMembersModalOpen(true)}>
+                        Добавить участника
+                      </Button>
+                    )}
+                  </Space>
+                </div>
+
+                <Card
+                  style={{ display: 'flex', flexDirection: 'column', flex: 1 }}
+                  styles={{ body: { padding: 0, display: 'flex', flexDirection: 'column', flex: 1 } }}
+                >
+                  <div ref={containerRef} style={{ flex: 1, minHeight: 0, overflow: 'hidden', position: 'relative' }}>
+                  {(membersLoading || !isMeasured) && (
+                    <div
+                      style={{
+                        position: 'absolute',
+                        inset: 0,
+                        zIndex: 1,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        background: token.colorBgContainer,
+                      }}
+                    >
+                      <Spin />
+                    </div>
+                  )}
+                  <Table
+                    rowKey="id"
+                    loading={false}
+                    dataSource={pagedMembers}
+                    pagination={false}
+                    scroll={{ x: 'max-content' }}
+                    onRow={() => (rowHeight ? { style: { height: rowHeight } } : {})}
+                    columns={[
+                      {
+                        title: 'N',
+                        key: 'index',
+                        width: 50,
+                        render: (_: any, row: User) => memberNumbers.get(row.id) as any,
+                      },
+                      {
+                        title: 'Пользователь',
+                        dataIndex: 'name',
+                        render: (name: string, row: User) => (
+                          <Space>
+                            <Avatar src={row.avatarUrl} icon={!row.avatarUrl ? <UserOutlined /> : undefined} size="small" />
+                            <Link 
+                              to={`/users/${row.id}`}
+                              onClick={(e) => {
+                                if (user?.role !== 'Admin') {
+                                  e.preventDefault();
+                                  message.error('Доступ к профилям пользователей есть только у администраторов');
+                                }
+                              }}
+                            >
+                              {name}
+                            </Link>
+                          </Space>
+                        ),
+                      },
+                      {
+                        title: 'Роль',
+                        dataIndex: 'role',
+                        render: (role: Role) => (
+                          <Tag color={ROLE_COLORS[role]} style={{ width: 84, textAlign: 'center' }}>{role}</Tag>
+                        ),
+                      },
+                      {
+                        title: 'Действия',
+                        key: 'actions',
+                        render: (_: any, row: User) => (
+                          user?.role === 'Admin' && row.role !== 'Admin' ? (
+                            <Popconfirm 
+                              title="Удалить из проекта?" 
+                              onConfirm={() => {
+                                const newUserIds = members.filter((m: User) => m.id !== row.id).map((m: User) => m.id);
+                                updateMembersMutation.mutate(newUserIds);
+                              }} 
+                              okText="Удалить" 
+                              cancelText="Отмена"
+                            >
+                              <Button size="small" danger icon={<DeleteOutlined />} />
+                            </Popconfirm>
+                          ) : null
+                        ),
+                      },
+                    ]}
+                  />
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'center', padding: '16px 24px', borderTop: `1px solid ${token.colorBorderSecondary}` }}>
+                    <Pagination current={membersPage} pageSize={pageSize} total={filteredMembers.length} onChange={setMembersPage} />
+                  </div>
+                </Card>
+              </>
+            ),
+          },
         ]}
       />
       )}
@@ -343,6 +497,13 @@ export default function ProjectDetailPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <ProjectMembersModal
+        open={membersModalOpen}
+        onClose={() => setMembersModalOpen(false)}
+        onSave={(userIds) => updateMembersMutation.mutateAsync(userIds)}
+        initialSelectedIds={members.map((m: User) => m.id)}
+      />
     </div>
   );
 }

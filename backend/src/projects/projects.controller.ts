@@ -1,4 +1,4 @@
-import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe } from '@nestjs/common';
+import { Controller, Get, Post, Body, Patch, Param, Delete, UseGuards, ParseIntPipe, Request } from '@nestjs/common';
 import { ProjectsService } from './projects.service';
 import { CreateProjectDto } from './dto/create-project.dto';
 import { UpdateProjectDto } from './dto/update-project.dto';
@@ -20,25 +20,37 @@ export class ProjectsController {
 
   @Roles(Role.ADMIN, Role.DEVELOPER, Role.VIEWER)
   @Get()
-  findAll() {
-    return this.projectsService.findAll();
+  findAll(@Request() req) {
+    return this.projectsService.findAll(req.user);
   }
 
   @Roles(Role.ADMIN, Role.DEVELOPER, Role.VIEWER)
   @Get(':id')
-  findOne(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.findOne(id);
+  findOne(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    return this.projectsService.findOne(id, req.user);
   }
 
   @Roles(Role.ADMIN)
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() updateProjectDto: UpdateProjectDto) {
-    return this.projectsService.update(id, updateProjectDto);
+  update(@Param('id', ParseIntPipe) id: number, @Body() updateProjectDto: UpdateProjectDto, @Request() req) {
+    return this.projectsService.update(id, updateProjectDto, req.user);
   }
 
   @Roles(Role.ADMIN)
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.projectsService.remove(id);
+  remove(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    return this.projectsService.remove(id, req.user);
   }
-}
+
+  @Roles(Role.ADMIN, Role.DEVELOPER, Role.VIEWER)
+  @Get(':id/members')
+  getMembers(@Param('id', ParseIntPipe) id: number, @Request() req) {
+    return this.projectsService.getMembers(id, req.user);
+  }
+
+  @Roles(Role.ADMIN)
+  @Post(':id/members')
+  updateMembers(@Param('id', ParseIntPipe) id: number, @Body() body: { userIds: number[] }) {
+    return this.projectsService.updateMembers(id, body.userIds);
+  }
+}

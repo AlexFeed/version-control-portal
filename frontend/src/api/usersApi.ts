@@ -11,7 +11,7 @@ const mapRoleToBackend = (role: Role): string => {
   return role.toUpperCase();
 };
 
-const mapUser = (backendUser: any): User => ({
+export const mapUser = (backendUser: any): User => ({
   id: backendUser.id,
   name: backendUser.login,
   email: backendUser.login,

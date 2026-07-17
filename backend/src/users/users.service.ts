@@ -49,34 +49,44 @@ export class UsersService {
   }
 
   async findProjects(id: number) {
-    // Projects where the user has created at least one version
-    const userWithVersions = await this.prisma.user.findUnique({
+    const user = await this.prisma.user.findUnique({
       where: { id },
       include: {
-        versions: {
+        memberProjects: {
           include: {
             project: true,
           },
         },
+        versions: {
+          include: {
+            project: true,
+          }
+        }
       },
     });
 
-    if (!userWithVersions) {
+    if (!user) {
       throw new NotFoundException(`Пользователь #${id} не найден`);
     }
 
-    // Extract unique projects from versions
-    const uniqueProjectsMap = new Map();
-    userWithVersions.versions.forEach(v => {
-      if (!uniqueProjectsMap.has(v.project.id)) {
-        uniqueProjectsMap.set(v.project.id, {
-          ...v.project,
-          addedAt: v.createdAt, // use first version creation time as addedAt
-        });
+    const projectsMap = new Map();
+    for (const mp of user.memberProjects) {
+      projectsMap.set(mp.project.id, { ...mp.project });
+    }
+    for (const v of user.versions) {
+      if (!projectsMap.has(v.project.id)) {
+        projectsMap.set(v.project.id, { ...v.project, addedAt: v.createdAt });
+      } else {
+        const existing = projectsMap.get(v.project.id);
+        if (existing.addedAt && new Date(v.createdAt) < new Date(existing.addedAt)) {
+          existing.addedAt = v.createdAt;
+        } else if (!existing.addedAt) {
+          existing.addedAt = v.createdAt;
+        }
       }
-    });
+    }
 
-    return Array.from(uniqueProjectsMap.values());
+    return Array.from(projectsMap.values());
   }
 
   async update(id: number, updateUserDto: UpdateUserDto, currentUser?: any) {

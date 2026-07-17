@@ -1,13 +1,14 @@
 import { useEffect, useState } from 'react';
-import { Typography, Table, Input, Space, Card, Spin, Empty, Button, Modal, Form, Select, Popconfirm, Pagination, Popover, DatePicker, theme } from 'antd';
-import { PlusOutlined, EditOutlined, DeleteOutlined, FilterOutlined, PushpinOutlined, PushpinFilled } from '@ant-design/icons';
+import { Typography, Table, Input, Space, Card, Spin, Empty, Button, Modal, Form, Popconfirm, Pagination, Popover, DatePicker, theme } from 'antd';
+import { PlusOutlined, EditOutlined, DeleteOutlined, FilterOutlined } from '@ant-design/icons';
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import dayjs, { type Dayjs } from 'dayjs';
 import { getUser, updateUser, deleteUser, getUserProjects } from '../api/usersApi';
-import { getProjects, addProjectMember, removeProjectMember } from '../api/projectsApi';
-import { usePinnedTabs } from '../pinned/PinnedTabsContext';
+import { addProjectMember, removeProjectMember, updateProject } from '../api/projectsApi';
+import { useAuth } from '../auth/AuthContext';
 import { useFillPageSize } from '../hooks/useFillPageSize';
+import { UserProjectsModal } from '../components/UserProjectsModal';
 import type { MemberProject } from '../types';
 
 const { Title, Text } = Typography;
@@ -17,17 +18,20 @@ export default function UserDetailPage() {
   const { token } = theme.useToken();
   const { id } = useParams();
   const userId = Number(id);
+  const { user: loggedInUser } = useAuth();
+  const canEditProjects = loggedInUser?.role === 'Admin';
   const location = useLocation();
   const navigate = useNavigate();
-  const { isPinned, togglePin } = usePinnedTabs();
   const fromProject = (location.state as { fromProject?: { id: number; name: string } } | null)?.fromProject;
   const queryClient = useQueryClient();
   const [search, setSearch] = useState('');
   const [dateRange, setDateRange] = useState<[Dayjs, Dayjs] | null>(null);
   const [page, setPage] = useState(1);
-  const [addProjectId, setAddProjectId] = useState<number | null>(null);
+  const [projectsModalOpen, setProjectsModalOpen] = useState(false);
   const [editModalOpen, setEditModalOpen] = useState(false);
   const [editForm] = Form.useForm();
+  const [editingProject, setEditingProject] = useState<MemberProject | null>(null);
+  const [editProjectForm] = Form.useForm();
   const { data: user, isLoading: userLoading } = useQuery({
     queryKey: ['user', userId],
     queryFn: () => getUser(userId),
@@ -38,16 +42,19 @@ export default function UserDetailPage() {
     queryFn: () => getUserProjects(userId),
   });
 
-  const { data: allProjects = [] } = useQuery({ queryKey: ['projects'], queryFn: getProjects });
   const { containerRef, pageSize, rowHeight, isMeasured } = useFillPageSize(3, !projectsLoading);
 
-  const addMutation = useMutation({
-    mutationFn: (projectId: number) => addProjectMember(projectId, userId),
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['user-projects', userId] });
-      setAddProjectId(null);
-    },
-  });
+  const handleSaveProjects = async (projectIds: number[]) => {
+    const currentProjectIds = userProjects.map(p => p.id);
+    const toAdd = projectIds.filter(id => !currentProjectIds.includes(id));
+    const toRemove = currentProjectIds.filter(id => !projectIds.includes(id));
+
+    await Promise.all([
+      ...toAdd.map(projectId => addProjectMember(projectId, userId)),
+      ...toRemove.map(projectId => removeProjectMember(projectId, userId))
+    ]);
+    queryClient.invalidateQueries({ queryKey: ['user-projects', userId] });
+  };
 
   const removeMutation = useMutation({
     mutationFn: (projectId: number) => removeProjectMember(projectId, userId),
@@ -72,6 +79,20 @@ export default function UserDetailPage() {
     },
   });
 
+  const updateProjectMut = useMutation({
+    mutationFn: ({ id, data }: { id: number; data: { name: string; description: string } }) => updateProject(id, data),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['user-projects', userId] });
+      queryClient.invalidateQueries({ queryKey: ['projects'] });
+      setEditingProject(null);
+    },
+  });
+
+  const openEditProject = (project: MemberProject) => {
+    setEditingProject(project);
+    editProjectForm.setFieldsValue({ name: project.name, description: project.description });
+  };
+
   useEffect(() => setPage(1), [search, dateRange, pageSize]);
 
   if (userLoading) {
@@ -85,8 +106,6 @@ export default function UserDetailPage() {
   if (!user) {
     return <Empty description="Пользователь не найден" style={{ marginTop: 80 }} />;
   }
-
-  const availableProjects = allProjects.filter(p => !userProjects.some(up => up.id === p.id));
 
   const filteredProjects = userProjects.filter(p => {
     const matchesSearch = p.name.toLowerCase().includes(search.toLowerCase()) || p.description.toLowerCase().includes(search.toLowerCase());
@@ -153,23 +172,15 @@ export default function UserDetailPage() {
           >
             <Button icon={<FilterOutlined />}>Фильтр{dateRange ? ' (1)' : ''}</Button>
           </Popover>
-          <Select
-            placeholder="Выберите проект"
-            style={{ width: 240, maxWidth: '100%' }}
-            value={addProjectId}
-            options={availableProjects.map(p => ({ value: p.id, label: p.name }))}
-            onChange={setAddProjectId}
-            notFoundContent="Пользователь уже добавлен во все проекты"
-          />
-          <Button
-            type="primary"
-            icon={<PlusOutlined />}
-            disabled={addProjectId === null}
-            loading={addMutation.isPending}
-            onClick={() => addProjectId !== null && addMutation.mutate(addProjectId)}
-          >
-            Добавить проект
-          </Button>
+          {canEditProjects && (
+            <Button
+              type="primary"
+              icon={<PlusOutlined />}
+              onClick={() => setProjectsModalOpen(true)}
+            >
+              Добавить проект
+            </Button>
+          )}
         </Space>
       </div>
 
@@ -227,9 +238,16 @@ export default function UserDetailPage() {
                 title: 'Действия',
                 key: 'actions',
                 render: (_: unknown, row: MemberProject) => (
-                  <Popconfirm title="Убрать пользователя из проекта?" onConfirm={() => removeMutation.mutate(row.id)} okText="Убрать" cancelText="Отмена">
-                    <Button size="small" danger icon={<DeleteOutlined />} />
-                  </Popconfirm>
+                  <Space>
+                    {canEditProjects && (
+                      <Button size="small" icon={<EditOutlined />} onClick={() => openEditProject(row)} />
+                    )}
+                    {user.role !== 'Admin' && (
+                      <Popconfirm title="Убрать пользователя из проекта?" onConfirm={() => removeMutation.mutate(row.id)} okText="Убрать" cancelText="Отмена">
+                        <Button size="small" danger icon={<DeleteOutlined />} />
+                      </Popconfirm>
+                    )}
+                  </Space>
                 ),
               },
             ]}
@@ -258,6 +276,36 @@ export default function UserDetailPage() {
           </Form.Item>
         </Form>
       </Modal>
+
+      <Modal
+        title="Редактировать проект"
+        open={editingProject !== null}
+        onCancel={() => setEditingProject(null)}
+        onOk={() => editProjectForm.submit()}
+        confirmLoading={updateProjectMut.isPending}
+        okText="Сохранить"
+        cancelText="Отмена"
+      >
+        <Form
+          form={editProjectForm}
+          layout="vertical"
+          onFinish={values => editingProject && updateProjectMut.mutate({ id: editingProject.id, data: values })}
+        >
+          <Form.Item label="Название" name="name" rules={[{ required: true, message: 'Введите название' }]}>
+            <Input />
+          </Form.Item>
+          <Form.Item label="Описание" name="description" rules={[{ required: true, message: 'Введите описание' }]}>
+            <Input.TextArea rows={3} />
+          </Form.Item>
+        </Form>
+      </Modal>
+
+      <UserProjectsModal
+        open={projectsModalOpen}
+        onClose={() => setProjectsModalOpen(false)}
+        onSave={handleSaveProjects}
+        initialSelectedIds={userProjects.map(p => p.id)}
+      />
     </div>
   );
 }
